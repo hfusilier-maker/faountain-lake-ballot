@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fountain Lake School District - Voter Database</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="app"></div>
+
+    <script>
+        const App = {
+            voterData: [],
+            parentData: [],
+            filteredData: [],
+            searchTerm: '',
+            countyFilter: 'all',
+            registeredFilter: 'all',
+            viewMode: 'voters',
+            stats: {
+                totalVoters: 0,
+                salineVoters: 0,
+                garlandVoters: 0,
+                registeredParents: 0,
+                unregisteredParents: 0,
+                totalParents: 0
+            },
+
+            init() {
+                this.loadFromLocalStorage();
+                this.render();
+            },
+
+            loadFromLocalStorage() {
+                const voterJson = localStorage.getItem('fl-voter-data');
+                const parentJson = localStorage.getItem('fl-parent-data');
+                
+                if (voterJson) {
+                    this.voterData = JSON.parse(voterJson);
+                }
+                if (parentJson) {
+                    this.parentData = JSON.parse(parentJson);
+                }
+                
+                this.updateStats();
+                this.applyFilters();
+            },
+
+            saveToLocalStorage() {
+                localStorage.setItem('fl-voter-data', JSON.stringify(this.voterData));
+                localStorage.setItem('fl-parent-data', JSON.stringify(this.parentData));
+            },
+
+            updateStats() {
+                const registeredParents = this.parentData.filter(p => p.isRegistered).length;
+                this.stats = {
+                    totalVoters: this.voterData.length,
+                    salineVoters: this.voterData.filter(v => v.county === 'Saline').length,
+                    garlandVoters: this.voterData.filter(v => v.county === 'Garland').length,
+                    registeredParents: registeredParents,
+                    unregisteredParents: this.parentData.length - registeredParents,
+                    totalParents: this.parentData.length
+                };
+            },
+
+            handleVoterFileUpload(e, county) {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const data = new Uint8Array(event.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                        const jsonData = XLSX.utils.sheet_to_json(firstSheet, { raw: false, defval: '' });
+                        
+                        const otherCountyData = this.voterData.filter(v => v.county !== county);
+                        const processedData = jsonData.map((row, index) => ({
+                            id: otherCountyData.length + index,
+                            county: county,
+                            ...row
+                        }));
+
+                        this.voterData = [...otherCountyData, ...processedData];
+                        this.saveToLocalStorage();
+                        
+                        if (this.parentData.length > 0) {
+                            this.matchParentsToVoters();
+                        }
+                        
+                        this.updateStats();
+                        this.applyFilters();
+                        this.render();
+                    } catch (error) {
+                        alert('Error processing file: ' + error.message);
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            },
+
+            handleParentFileUpload(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const data = new Uint8Array(event.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                        const jsonData = XLSX.utils.sheet_to_json(firstSheet, { raw: false, defval: '' });
+                        
+                        this.matchParentsToVoters(jsonData);
+                        this.render();
+                    } catch (error) {
+                        alert('Error processing file: ' + error.message);
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            },
+
+            normalizeString(str) {
+                if (!str) return '';
+                return str.toString().toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+            },
+
+            matchParentsToVoters(parents = null) {
+                const parentsToMatch = parents || this.parentData;
+                
+                this.parentData = parentsToMatch.map((parent, index) => {
+                    const parentLastName = this.normalizeString(parent['Last Name'] || parent['LastName'] || parent['Parent Last Name']);
+                    const parentFirstName = this.normalizeString(parent['First Name'] || parent['FirstName'] || parent['Parent First Name']);
+                    const parentAddress = this.normalizeString(parent['Address'] || parent['Street Address'] || parent['Physical Address']);
+                    const parentCity = this.normalizeString(parent['City']);
+                    
+                    let isRegistered = false;
+                    let matchedVoter = null;
+
+                    for (const voter of this.voterData) {
+                        const voterLastName = this.normalizeString(voter['Last Name'] || voter['LastName']);
+                        const voterFirstName = this.normalizeString(voter['First Name'] || voter['FirstName']);
+                        const voterAddress = this.normalizeString(voter['Residential Street 1'] || voter['Address'] || voter['Street']);
+                        const voterCity = this.normalizeString(voter['Residential City'] || voter['City']);
+
+                        if (parentLastName && voterLastName && parentLastName === voterLastName) {
+                            if ((parentAddress && voterAddress && parentAddress === voterAddress) ||
+                                (parentFirstName && voterFirstName && parentCity && voterCity &&
+                                 parentFirstName === voterFirstName && parentCity === voterCity)) {
+                                isRegistered = true;
+                                matchedVoter = voter;
+                                break;
+                            }
+                        }
+                    }
+
+                    return {
+                        id: index,
+                        ...parent,
+                        isRegistered,
+                        matchedVoter
+                    };
+                });
+
+                this.saveToLocalStorage();
+                this.updateStats();
+                this.applyFilters();
+            },
+
+            applyFilters() {
+                let filtered = this.viewMode === 'voters' ? this.voterData : this.parentData;
+
+                if (this.searchTerm) {
+                    const searchLower = this.searchTerm.toLowerCase();
+                    filtered = filtered.filter(item => 
+                        Object.values(item).some(val => 
+                            String(val).toLowerCase().includes(searchLower)
+                        )
+                    );
+                }
+
+                if (this.viewMode === 'voters' && this.countyFilter !== 'all') {
+                    filtered = filtered.filter(v => v.county === this.countyFilter);
+                }
+
+                if (this.viewMode === 'parents') {
+                    if (this.registeredFilter === 'registered') {
+                        filtered = filtered.filter(p => p.isRegistered);
+                    } else if (this.registeredFilter === 'unregistered') {
+                        filtered = filtered.filter(p => !p.isRegistered);
+                    }
+                }
+
+                this.filteredData = filtered;
+            },
+
+            exportToExcel() {
+                const dataToExport = this.viewMode === 'voters' ? this.filteredData : this.filteredData.map(p => ({
+                    ...p,
+                    'Registration Status': p.isRegistered ? 'REGISTERED' : 'NOT REGISTERED',
+                    'Matched Voter': p.matchedVoter ? `${p.matchedVoter['First Name']} ${p.matchedVoter['Last Name']}` : 'N/A'
+                }));
+                
+                const ws = XLSX.utils.json_to_sheet(dataToExport);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, this.viewMode === 'voters' ? 'Voters' : 'Parents');
+                XLSX.writeFile(wb, `fountain_lake_${this.viewMode}_export.xlsx`);
+            },
+
+            render() {
+                const app = document.getElementById('app');
+                
+                const headers = this.viewMode === 'voters' && this.voterData.length > 0 
+                    ? Object.keys(this.voterData[0]).filter(key => !['id', 'county'].includes(key)).slice(0, 7)
+                    : this.parentData.length > 0 
+                    ? Object.keys(this.parentData[0]).filter(key => !['id', 'isRegistered', 'matchedVoter'].includes(key)).slice(0, 7)
+                    : [];
+
+                app.innerHTML = `
+                    <div class="bg-blue-900 text-white p-6 shadow-lg">
+                        <h1 class="text-3xl font-bold mb-2">Fountain Lake School District</h1>
+                        <p class="text-blue-200">Voter Database</p>
+                    </div>
+
+                    <div class="max-w-7xl mx-auto px-6 py-6">
+                        <!-- Stats -->
+                        <div class="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
+                            <div class="bg-white rounded-lg shadow p-4">
+                                <p class="text-sm text-gray-600">Total Voters</p>
+                                <p class="text-2xl font-bold text-gray-900">${this.stats.totalVoters.toLocaleString()}</p>
+                            </div>
+                            <div class="bg-white rounded-lg shadow p-4">
+                                <p class="text-sm text-gray-600">Saline County</p>
+                                <p class="text-2xl font-bold text-gray-900">${this.stats.salineVoters.toLocaleString()}</p>
+                            </div>
+                            <div class="bg-white rounded-lg shadow p-4">
+                                <p class="text-sm text-gray-600">Garland County</p>
+                                <p class="text-2xl font-bold text-gray-900">${this.stats.garlandVoters.toLocaleString()}</p>
+                            </div>
+                            <div class="bg-white rounded-lg shadow p-4">
+                                <p class="text-sm text-gray-600">Total Parents</p>
+                                <p class="text-2xl font-bold text-gray-900">${this.stats.totalParents.toLocaleString()}</p>
+                            </div>
+                            <div class="bg-white rounded-lg shadow p-4">
+                                <p class="text-sm text-gray-600">Registered Parents</p>
+                                <p class="text-2xl font-bold text-green-700">${this.stats.registeredParents.toLocaleString()}</p>
+                            </div>
+                            <div class="bg-white rounded-lg shadow p-4">
+                                <p class="text-sm text-gray-600">Unregistered Parents</p>
+                                <p class="text-2xl font-bold text-orange-700">${this.stats.unregisteredParents.toLocaleString()}</p>
+                            </div>
+                        </div>
+
+                        <!-- View Toggle -->
+                        <div class="bg-white rounded-lg shadow p-4 mb-6">
+                            <div class="flex gap-2">
+                                <button onclick="App.setViewMode('voters')" class="flex-1 px-6 py-3 rounded-lg font-semibold transition ${this.viewMode === 'voters' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}">
+                                    Voter Database (${this.stats.totalVoters.toLocaleString()})
+                                </button>
+                                <button onclick="App.setViewMode('parents')" class="flex-1 px-6 py-3 rounded-lg font-semibold transition ${this.viewMode === 'parents' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}">
+                                    Parent Database (${this.stats.totalParents.toLocaleString()})
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Upload -->
+                        <div class="bg-white rounded-lg shadow p-6 mb-6">
+                            <h2 class="text-xl font-bold mb-4">${this.viewMode === 'voters' ? 'Upload County Voter Files' : 'Upload Parent Data from SIS'}</h2>
+                            ${this.viewMode === 'voters' ? `
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Upload Garland County Voters (XLSX)</label>
+                                        <input type="file" accept=".xlsx,.xls" onchange="App.handleVoterFileUpload(event, 'Garland')" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Upload Saline County Voters (XLSX)</label>
+                                        <input type="file" accept=".xlsx,.xls" onchange="App.handleVoterFileUpload(event, 'Saline')" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100">
+                                    </div>
+                                </div>
+                            ` : `
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Upload Parent List from SIS (XLSX)</label>
+                                    <input type="file" accept=".xlsx,.xls" onchange="App.handleParentFileUpload(event)" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                                    <p class="mt-2 text-sm text-gray-600">This will automatically match parents to registered voters.</p>
+                                </div>
+                            `}
+                        </div>
+
+                        <!-- Search & Filter -->
+                        <div class="bg-white rounded-lg shadow p-6 mb-6">
+                            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                <div class="md:col-span-2">
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Search</label>
+                                    <input type="text" placeholder="Search..." value="${this.searchTerm}" oninput="App.setSearch(event.target.value)" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                </div>
+                                ${this.viewMode === 'voters' ? `
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">County</label>
+                                        <select onchange="App.setCountyFilter(event.target.value)" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                                            <option value="all" ${this.countyFilter === 'all' ? 'selected' : ''}>All Counties</option>
+                                            <option value="Saline" ${this.countyFilter === 'Saline' ? 'selected' : ''}>Saline County</option>
+                                            <option value="Garland" ${this.countyFilter === 'Garland' ? 'selected' : ''}>Garland County</option>
+                                        </select>
+                                    </div>
+                                ` : `
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Registration Status</label>
+                                        <select onchange="App.setRegisteredFilter(event.target.value)" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                                            <option value="all" ${this.registeredFilter === 'all' ? 'selected' : ''}>All Parents</option>
+                                            <option value="registered" ${this.registeredFilter === 'registered' ? 'selected' : ''}>Registered Only</option>
+                                            <option value="unregistered" ${this.registeredFilter === 'unregistered' ? 'selected' : ''}>Unregistered Only</option>
+                                        </select>
+                                    </div>
+                                `}
+                                <div class="flex items-end">
+                                    <button onclick="App.exportToExcel()" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Export to Excel</button>
+                                </div>
+                            </div>
+                            <div class="mt-4">
+                                <p class="text-sm text-gray-600">Showing ${this.filteredData.length.toLocaleString()} of ${(this.viewMode === 'voters' ? this.voterData.length : this.parentData.length).toLocaleString()} records</p>
+                            </div>
+                        </div>
+
+                        <!-- Data Table -->
+                        <div class="bg-white rounded-lg shadow overflow-hidden">
+                            <div class="overflow-x-auto">
+                                <table class="min-w-full divide-y divide-gray-200">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            ${this.viewMode === 'voters' ? '<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">County</th>' : '<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>'}
+                                            ${headers.map(h => `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">${h.replace(/_/g, ' ')}</th>`).join('')}
+                                        </tr>
+                                    </thead>
+                                    <tbody class="bg-white divide-y divide-gray-200">
+                                        ${this.filteredData.slice(0, 100).map(item => `
+                                            <tr class="hover:bg-gray-50">
+                                                ${this.viewMode === 'voters' ? `
+                                                    <td class="px-6 py-4 whitespace-nowrap">
+                                                        <span class="px-2 py-1 text-xs font-semibold rounded ${item.county === 'Saline' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'}">
+                                                            ${item.county}
+                                                        </span>
+                                                    </td>
+                                                ` : `
+                                                    <td class="px-6 py-4 whitespace-nowrap">
+                                                        <span class="px-3 py-1 text-xs font-bold rounded ${item.isRegistered ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}">
+                                                            ${item.isRegistered ? '✓ REGISTERED' : '✗ NOT REGISTERED'}
+                                                        </span>
+                                                    </td>
+                                                `}
+                                                ${headers.map(h => `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${item[h] || '-'}</td>`).join('')}
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                            ${this.filteredData.length > 100 ? '<div class="bg-gray-50 px-6 py-4 text-sm text-gray-600 text-center">Showing first 100 results. Use filters to narrow your search or export all data.</div>' : ''}
+                        </div>
+                    </div>
+                `;
+            },
+
+            setViewMode(mode) {
+                this.viewMode = mode;
+                this.applyFilters();
+                this.render();
+            },
+
+            setSearch(term) {
+                this.searchTerm = term;
+                this.applyFilters();
+                this.render();
+            },
+
+            setCountyFilter(filter) {
+                this.countyFilter = filter;
+                this.applyFilters();
+                this.render();
+            },
+
+            setRegisteredFilter(filter) {
+                this.registeredFilter = filter;
+                this.applyFilters();
+                this.render();
+            }
+        };
+
+        // Initialize app
+        App.init();
+    </script>
+</body>
+</html>
