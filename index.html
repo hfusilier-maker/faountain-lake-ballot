@@ -41,7 +41,7 @@
 
             async init() {
                 this.renderLoading();
-                await this.loadSalineData(); // will set loading false and renderAll
+                await this.loadSalineData();
             },
 
             // ---------- Data loading ----------
@@ -121,7 +121,6 @@
                             ...row
                         }));
 
-                        // Keep saline + replace garland
                         this.voterData = [...this.voterData.filter(v => v.county === 'Saline'), ...garlandData];
 
                         if (this.parentData.length > 0) {
@@ -286,7 +285,21 @@
                 XLSX.writeFile(wb, `fountain_lake_${this.viewMode}_export.xlsx`);
             },
 
-            // ---------- UI: build shell once ----------
+            // ---------- Focus lock (FIX) ----------
+            restoreSearchFocus(pos) {
+                // Force focus back to the search input and restore cursor position
+                requestAnimationFrame(() => {
+                    const el = document.getElementById('searchInput');
+                    if (!el) return;
+                    el.focus();
+                    try {
+                        const p = typeof pos === 'number' ? pos : el.value.length;
+                        el.setSelectionRange(p, p);
+                    } catch (_) {}
+                });
+            },
+
+            // ---------- UI ----------
             renderLoading() {
                 const app = document.getElementById('app');
                 app.innerHTML = `
@@ -310,19 +323,10 @@
                     </div>
 
                     <div class="max-w-7xl mx-auto px-6 py-6">
-                        <!-- Stats -->
                         <div id="statsGrid" class="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6"></div>
-
-                        <!-- View Toggle -->
                         <div id="viewToggle" class="bg-white rounded-lg shadow p-4 mb-6"></div>
-
-                        <!-- Upload -->
                         <div id="uploadSection" class="bg-white rounded-lg shadow p-6 mb-6"></div>
-
-                        <!-- Search & Filter -->
                         <div id="filterSection" class="bg-white rounded-lg shadow p-6 mb-6"></div>
-
-                        <!-- Data Table -->
                         <div id="tableSection" class="bg-white rounded-lg shadow overflow-hidden"></div>
                     </div>
                 `;
@@ -330,7 +334,6 @@
                 this.uiBuilt = true;
             },
 
-            // Full refresh of sections (used after mode changes / uploads / initial load)
             renderAll() {
                 if (this.loading) {
                     this.renderLoading();
@@ -340,8 +343,8 @@
                 this.renderStats();
                 this.renderViewToggle();
                 this.renderUpload();
-                this.renderFilters();     // creates the inputs/selects once for the current mode
-                this.renderTableOnly();   // table + count + footer
+                this.renderFilters();
+                this.renderTableOnly();
             },
 
             renderStats() {
@@ -420,8 +423,6 @@
                 const el = document.getElementById('filterSection');
                 if (!el) return;
 
-                // Important: This section is only re-rendered when viewMode changes or after uploads/initial load.
-                // We do NOT rebuild it on every keystroke. That is what fixes the focus issue.
                 el.innerHTML = `
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                         <div class="md:col-span-2">
@@ -463,19 +464,15 @@
                     </div>
                 `;
 
-                // Immediately set the showing line now that it's created
                 this.renderShowingLineOnly();
             },
 
             getHeadersForCurrentMode() {
-                const headers =
-                    this.viewMode === 'voters' && this.voterData.length > 0
-                        ? Object.keys(this.voterData[0]).filter(key => !['id', 'county'].includes(key)).slice(0, 7)
-                        : this.parentData.length > 0
-                            ? Object.keys(this.parentData[0]).filter(key => !['id', 'isRegistered', 'matchedVoter'].includes(key)).slice(0, 7)
-                            : [];
-
-                return headers;
+                return (this.viewMode === 'voters' && this.voterData.length > 0)
+                    ? Object.keys(this.voterData[0]).filter(key => !['id', 'county'].includes(key)).slice(0, 7)
+                    : (this.parentData.length > 0)
+                        ? Object.keys(this.parentData[0]).filter(key => !['id', 'isRegistered', 'matchedVoter'].includes(key)).slice(0, 7)
+                        : [];
             },
 
             renderShowingLineOnly() {
@@ -486,7 +483,6 @@
                 el.textContent = `Showing ${this.filteredData.length.toLocaleString()} of ${total.toLocaleString()} records`;
             },
 
-            // ---------- UI: FAST path (table-only re-render) ----------
             renderTableOnly() {
                 const tableContainer = document.getElementById('tableSection');
                 if (!tableContainer) return;
@@ -510,7 +506,6 @@
                     <div id="tableFooter"></div>
                 `;
 
-                // Fill table body + footer without touching filters/search inputs
                 this.renderTableBodyAndFooter(headers);
                 this.renderShowingLineOnly();
             },
@@ -520,7 +515,7 @@
                 const footer = document.getElementById('tableFooter');
                 if (!body || !footer) return;
 
-                const rowsHtml = this.filteredData.slice(0, 100).map(item => `
+                body.innerHTML = this.filteredData.slice(0, 100).map(item => `
                     <tr class="hover:bg-gray-50">
                         ${this.viewMode === 'voters' ? `
                             <td class="px-6 py-4 whitespace-nowrap">
@@ -539,36 +534,38 @@
                     </tr>
                 `).join('');
 
-                body.innerHTML = rowsHtml;
-
                 footer.innerHTML = this.filteredData.length > 100
                     ? `<div class="bg-gray-50 px-6 py-4 text-sm text-gray-600 text-center">Showing first 100 results. Use filters to narrow your search or export all data.</div>`
                     : '';
             },
 
-            // ---------- Handlers (optimized) ----------
+            // ---------- Handlers ----------
             setViewMode(mode) {
                 this.viewMode = mode;
                 this.applyFilters();
-                // view mode changes affect filters UI + upload UI + headers, so full section refresh is safest
                 this.renderAll();
             },
 
             setSearch(e) {
+                // Capture cursor position BEFORE any DOM updates
+                const pos = e?.target?.selectionStart ?? null;
+
                 this.searchTerm = e.target.value;
                 this.applyFilters();
 
-                // FAST: only update showing line + table (no rebuild of the input, so focus stays)
+                // Update only what we need (fast)
                 const headers = this.getHeadersForCurrentMode();
                 this.renderShowingLineOnly();
                 this.renderTableBodyAndFooter(headers);
+
+                // Force focus back to search (fixes "1 letter then click again")
+                this.restoreSearchFocus(pos);
             },
 
             setCountyFilter(filter) {
                 this.countyFilter = filter;
                 this.applyFilters();
 
-                // FAST: update showing line + table only
                 const headers = this.getHeadersForCurrentMode();
                 this.renderShowingLineOnly();
                 this.renderTableBodyAndFooter(headers);
@@ -578,14 +575,12 @@
                 this.registeredFilter = filter;
                 this.applyFilters();
 
-                // FAST: update showing line + table only
                 const headers = this.getHeadersForCurrentMode();
                 this.renderShowingLineOnly();
                 this.renderTableBodyAndFooter(headers);
             }
         };
 
-        // Initialize app
         App.init();
     </script>
 </body>
