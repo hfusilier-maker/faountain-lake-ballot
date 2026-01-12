@@ -4,9 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fountain Lake School District - Voter Database</title>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
     <style>
         body { font-family: system-ui, -apple-system, sans-serif; }
     </style>
@@ -17,7 +19,7 @@
     <script>
         const SALINE_SHEET_ID = '13Ot79wlChxVJqenZWGgl4uO9frQyDHd-DIJ_xGFbOrU';
         const SALINE_SHEET_NAME = 'Ft Lake_Saline voters';
-        
+
         const App = {
             voterData: [],
             parentData: [],
@@ -27,6 +29,7 @@
             registeredFilter: 'all',
             viewMode: 'voters',
             loading: true,
+            uiBuilt: false,
             stats: {
                 totalVoters: 0,
                 salineVoters: 0,
@@ -37,18 +40,18 @@
             },
 
             async init() {
-                await this.loadSalineData();
-                this.loading = false;
-                this.render();
+                this.renderLoading();
+                await this.loadSalineData(); // will set loading false and renderAll
             },
 
+            // ---------- Data loading ----------
             async loadSalineData() {
                 try {
                     const url = `https://docs.google.com/spreadsheets/d/${SALINE_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SALINE_SHEET_NAME)}`;
-                    
+
                     const response = await fetch(url);
                     const csvText = await response.text();
-                    
+
                     Papa.parse(csvText, {
                         header: true,
                         skipEmptyLines: true,
@@ -58,23 +61,30 @@
                                 county: 'Saline',
                                 ...row
                             }));
+
                             this.updateStats();
                             this.applyFilters();
                             this.loading = false;
-                            this.render();
+
+                            this.renderShellIfNeeded();
+                            this.renderAll();
                         },
                         error: (error) => {
                             console.error('Error parsing CSV:', error);
                             alert('Error loading voter data from Google Sheets');
                             this.loading = false;
-                            this.render();
+
+                            this.renderShellIfNeeded();
+                            this.renderAll();
                         }
                     });
                 } catch (error) {
                     console.error('Error loading Google Sheet:', error);
                     alert('Error connecting to Google Sheets. Please make sure the sheet is publicly accessible.');
                     this.loading = false;
-                    this.render();
+
+                    this.renderShellIfNeeded();
+                    this.renderAll();
                 }
             },
 
@@ -95,7 +105,7 @@
                 if (!file) return;
 
                 this.loading = true;
-                this.render();
+                this.renderLoading();
 
                 const reader = new FileReader();
                 reader.onload = (event) => {
@@ -104,28 +114,33 @@
                         const workbook = XLSX.read(data, { type: 'array' });
                         const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
                         const jsonData = XLSX.utils.sheet_to_json(firstSheet, { raw: false, defval: '' });
-                        
+
                         const garlandData = jsonData.map((row, index) => ({
                             id: this.voterData.length + index,
                             county: 'Garland',
                             ...row
                         }));
 
+                        // Keep saline + replace garland
                         this.voterData = [...this.voterData.filter(v => v.county === 'Saline'), ...garlandData];
-                        
+
                         if (this.parentData.length > 0) {
                             this.matchParentsToVoters();
                         }
-                        
+
                         this.updateStats();
                         this.applyFilters();
                         this.loading = false;
-                        this.render();
+
+                        this.renderShellIfNeeded();
+                        this.renderAll();
                     } catch (error) {
                         console.error('Error processing file:', error);
                         alert('Error processing file: ' + error.message);
                         this.loading = false;
-                        this.render();
+
+                        this.renderShellIfNeeded();
+                        this.renderAll();
                     }
                 };
                 reader.readAsArrayBuffer(file);
@@ -136,7 +151,7 @@
                 if (!file) return;
 
                 this.loading = true;
-                this.render();
+                this.renderLoading();
 
                 const reader = new FileReader();
                 reader.onload = (event) => {
@@ -145,20 +160,25 @@
                         const workbook = XLSX.read(data, { type: 'array' });
                         const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
                         const jsonData = XLSX.utils.sheet_to_json(firstSheet, { raw: false, defval: '' });
-                        
+
                         this.matchParentsToVoters(jsonData);
+
                         this.loading = false;
-                        this.render();
+                        this.renderShellIfNeeded();
+                        this.renderAll();
                     } catch (error) {
                         console.error('Error processing file:', error);
                         alert('Error processing file: ' + error.message);
                         this.loading = false;
-                        this.render();
+
+                        this.renderShellIfNeeded();
+                        this.renderAll();
                     }
                 };
                 reader.readAsArrayBuffer(file);
             },
 
+            // ---------- Matching ----------
             normalizeString(str) {
                 if (!str) return '';
                 return str.toString().toLowerCase().trim().replace(/[^a-z0-9]/g, '');
@@ -166,26 +186,39 @@
 
             matchParentsToVoters(parents = null) {
                 const parentsToMatch = parents || this.parentData;
-                
+
                 this.parentData = parentsToMatch.map((parent, index) => {
                     const parentLastName = this.normalizeString(parent['Last Name'] || parent['LastName'] || parent['Parent Last Name']);
                     const parentFirstName = this.normalizeString(parent['First Name'] || parent['FirstName'] || parent['Parent First Name']);
                     const parentAddress = this.normalizeString(parent['Address'] || parent['Street Address'] || parent['Physical Address']);
                     const parentCity = this.normalizeString(parent['City']);
-                    
+
                     let isRegistered = false;
                     let matchedVoter = null;
 
                     for (const voter of this.voterData) {
                         const voterLastName = this.normalizeString(voter['Last Name'] || voter['LastName'] || voter['nam_text']);
                         const voterFirstName = this.normalizeString(voter['First Name'] || voter['FirstName'] || voter['nam_first']);
-                        const voterAddress = this.normalizeString(voter['Residential Street 1'] || voter['Address'] || voter['Street'] || voter['regis_cde']);
-                        const voterCity = this.normalizeString(voter['Residential City'] || voter['City'] || voter['regis_text']);
+
+                        const voterAddress = this.normalizeString(
+                            voter['Residential Street 1'] ||
+                            voter['Address'] ||
+                            voter['Street'] ||
+                            voter['regis_cde']
+                        );
+
+                        const voterCity = this.normalizeString(
+                            voter['Residential City'] ||
+                            voter['City'] ||
+                            voter['regis_text']
+                        );
 
                         if (parentLastName && voterLastName && parentLastName === voterLastName) {
-                            if ((parentAddress && voterAddress && parentAddress === voterAddress) ||
+                            if (
+                                (parentAddress && voterAddress && parentAddress === voterAddress) ||
                                 (parentFirstName && voterFirstName && parentCity && voterCity &&
-                                 parentFirstName === voterFirstName && parentCity === voterCity)) {
+                                    parentFirstName === voterFirstName && parentCity === voterCity)
+                            ) {
                                 isRegistered = true;
                                 matchedVoter = voter;
                                 break;
@@ -205,13 +238,14 @@
                 this.applyFilters();
             },
 
+            // ---------- Filtering ----------
             applyFilters() {
                 let filtered = this.viewMode === 'voters' ? this.voterData : this.parentData;
 
                 if (this.searchTerm) {
                     const searchLower = this.searchTerm.toLowerCase();
-                    filtered = filtered.filter(item => 
-                        Object.values(item).some(val => 
+                    filtered = filtered.filter(item =>
+                        Object.values(item).some(val =>
                             String(val).toLowerCase().includes(searchLower)
                         )
                     );
@@ -233,43 +267,42 @@
             },
 
             exportToExcel() {
-                const dataToExport = this.viewMode === 'voters' ? this.filteredData : this.filteredData.map(p => {
-                    const exported = {...p};
-                    delete exported.matchedVoter;
-                    exported['Registration Status'] = p.isRegistered ? 'REGISTERED' : 'NOT REGISTERED';
-                    if (p.matchedVoter) {
-                        exported['Matched Voter'] = `${p.matchedVoter['nam_first'] || p.matchedVoter['First Name'] || ''} ${p.matchedVoter['nam_text'] || p.matchedVoter['Last Name'] || ''}`;
-                    }
-                    return exported;
-                });
-                
+                const dataToExport = this.viewMode === 'voters'
+                    ? this.filteredData
+                    : this.filteredData.map(p => {
+                        const exported = { ...p };
+                        delete exported.matchedVoter;
+                        exported['Registration Status'] = p.isRegistered ? 'REGISTERED' : 'NOT REGISTERED';
+                        if (p.matchedVoter) {
+                            exported['Matched Voter'] =
+                                `${p.matchedVoter['nam_first'] || p.matchedVoter['First Name'] || ''} ${p.matchedVoter['nam_text'] || p.matchedVoter['Last Name'] || ''}`;
+                        }
+                        return exported;
+                    });
+
                 const ws = XLSX.utils.json_to_sheet(dataToExport);
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, this.viewMode === 'voters' ? 'Voters' : 'Parents');
                 XLSX.writeFile(wb, `fountain_lake_${this.viewMode}_export.xlsx`);
             },
 
-            render() {
+            // ---------- UI: build shell once ----------
+            renderLoading() {
                 const app = document.getElementById('app');
-                
-                if (this.loading) {
-                    app.innerHTML = `
-                        <div class="flex items-center justify-center h-screen bg-gray-50">
-                            <div class="text-center">
-                                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                                <p class="text-gray-600">Loading voter data from Google Sheets...</p>
-                            </div>
+                app.innerHTML = `
+                    <div class="flex items-center justify-center h-screen bg-gray-50">
+                        <div class="text-center">
+                            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                            <p class="text-gray-600">Loading voter data from Google Sheets...</p>
                         </div>
-                    `;
-                    return;
-                }
+                    </div>
+                `;
+            },
 
-                const headers = this.viewMode === 'voters' && this.voterData.length > 0 
-                    ? Object.keys(this.voterData[0]).filter(key => !['id', 'county'].includes(key)).slice(0, 7)
-                    : this.parentData.length > 0 
-                    ? Object.keys(this.parentData[0]).filter(key => !['id', 'isRegistered', 'matchedVoter'].includes(key)).slice(0, 7)
-                    : [];
+            renderShellIfNeeded() {
+                if (this.uiBuilt) return;
 
+                const app = document.getElementById('app');
                 app.innerHTML = `
                     <div class="bg-blue-900 text-white p-6 shadow-lg">
                         <h1 class="text-3xl font-bold mb-2">Fountain Lake School District</h1>
@@ -278,160 +311,277 @@
 
                     <div class="max-w-7xl mx-auto px-6 py-6">
                         <!-- Stats -->
-                        <div class="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
-                            <div class="bg-white rounded-lg shadow p-4">
-                                <p class="text-sm text-gray-600">Total Voters</p>
-                                <p class="text-2xl font-bold text-gray-900">${this.stats.totalVoters.toLocaleString()}</p>
-                            </div>
-                            <div class="bg-white rounded-lg shadow p-4">
-                                <p class="text-sm text-gray-600">Saline County</p>
-                                <p class="text-2xl font-bold text-gray-900">${this.stats.salineVoters.toLocaleString()}</p>
-                            </div>
-                            <div class="bg-white rounded-lg shadow p-4">
-                                <p class="text-sm text-gray-600">Garland County</p>
-                                <p class="text-2xl font-bold text-gray-900">${this.stats.garlandVoters.toLocaleString()}</p>
-                            </div>
-                            <div class="bg-white rounded-lg shadow p-4">
-                                <p class="text-sm text-gray-600">Total Parents</p>
-                                <p class="text-2xl font-bold text-gray-900">${this.stats.totalParents.toLocaleString()}</p>
-                            </div>
-                            <div class="bg-white rounded-lg shadow p-4">
-                                <p class="text-sm text-gray-600">Registered Parents</p>
-                                <p class="text-2xl font-bold text-green-700">${this.stats.registeredParents.toLocaleString()}</p>
-                            </div>
-                            <div class="bg-white rounded-lg shadow p-4">
-                                <p class="text-sm text-gray-600">Unregistered Parents</p>
-                                <p class="text-2xl font-bold text-orange-700">${this.stats.unregisteredParents.toLocaleString()}</p>
-                            </div>
-                        </div>
+                        <div id="statsGrid" class="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6"></div>
 
                         <!-- View Toggle -->
-                        <div class="bg-white rounded-lg shadow p-4 mb-6">
-                            <div class="flex gap-2">
-                                <button onclick="App.setViewMode('voters')" class="flex-1 px-6 py-3 rounded-lg font-semibold transition ${this.viewMode === 'voters' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}">
-                                    Voter Database (${this.stats.totalVoters.toLocaleString()})
-                                </button>
-                                <button onclick="App.setViewMode('parents')" class="flex-1 px-6 py-3 rounded-lg font-semibold transition ${this.viewMode === 'parents' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}">
-                                    Parent Database (${this.stats.totalParents.toLocaleString()})
-                                </button>
-                            </div>
-                        </div>
+                        <div id="viewToggle" class="bg-white rounded-lg shadow p-4 mb-6"></div>
 
                         <!-- Upload -->
-                        <div class="bg-white rounded-lg shadow p-6 mb-6">
-                            <h2 class="text-xl font-bold mb-4">${this.viewMode === 'voters' ? 'Upload County Voter Files' : 'Upload Parent Data from SIS'}</h2>
-                            ${this.viewMode === 'voters' ? `
-                                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                                    <p class="text-sm text-blue-800"><strong>✓ Saline County data loads automatically</strong> from Google Sheets</p>
-                                </div>
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">Upload Garland County Voters (XLSX)</label>
-                                    <input type="file" accept=".xlsx,.xls" onchange="App.handleGarlandFileUpload(event)" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100">
-                                </div>
-                            ` : `
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">Upload Parent List from SIS (XLSX)</label>
-                                    <input type="file" accept=".xlsx,.xls" onchange="App.handleParentFileUpload(event)" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
-                                    <p class="mt-2 text-sm text-gray-600">This will automatically match parents to registered voters.</p>
-                                </div>
-                            `}
-                        </div>
+                        <div id="uploadSection" class="bg-white rounded-lg shadow p-6 mb-6"></div>
 
                         <!-- Search & Filter -->
-                        <div class="bg-white rounded-lg shadow p-6 mb-6">
-                            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                <div class="md:col-span-2">
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">Search</label>
-                                    <input type="text" placeholder="Search..." value="${this.searchTerm}" oninput="App.setSearch(event.target.value)" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                                </div>
-                                ${this.viewMode === 'voters' ? `
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-2">County</label>
-                                        <select onchange="App.setCountyFilter(event.target.value)" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
-                                            <option value="all" ${this.countyFilter === 'all' ? 'selected' : ''}>All Counties</option>
-                                            <option value="Saline" ${this.countyFilter === 'Saline' ? 'selected' : ''}>Saline County</option>
-                                            <option value="Garland" ${this.countyFilter === 'Garland' ? 'selected' : ''}>Garland County</option>
-                                        </select>
-                                    </div>
-                                ` : `
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-2">Registration Status</label>
-                                        <select onchange="App.setRegisteredFilter(event.target.value)" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
-                                            <option value="all" ${this.registeredFilter === 'all' ? 'selected' : ''}>All Parents</option>
-                                            <option value="registered" ${this.registeredFilter === 'registered' ? 'selected' : ''}>Registered Only</option>
-                                            <option value="unregistered" ${this.registeredFilter === 'unregistered' ? 'selected' : ''}>Unregistered Only</option>
-                                        </select>
-                                    </div>
-                                `}
-                                <div class="flex items-end">
-                                    <button onclick="App.exportToExcel()" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Export to Excel</button>
-                                </div>
-                            </div>
-                            <div class="mt-4">
-                                <p class="text-sm text-gray-600">Showing ${this.filteredData.length.toLocaleString()} of ${(this.viewMode === 'voters' ? this.voterData.length : this.parentData.length).toLocaleString()} records</p>
-                            </div>
-                        </div>
+                        <div id="filterSection" class="bg-white rounded-lg shadow p-6 mb-6"></div>
 
                         <!-- Data Table -->
-                        <div class="bg-white rounded-lg shadow overflow-hidden">
-                            <div class="overflow-x-auto">
-                                <table class="min-w-full divide-y divide-gray-200">
-                                    <thead class="bg-gray-50">
-                                        <tr>
-                                            ${this.viewMode === 'voters' ? '<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">County</th>' : '<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>'}
-                                            ${headers.map(h => `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">${h.replace(/_/g, ' ')}</th>`).join('')}
-                                        </tr>
-                                    </thead>
-                                    <tbody class="bg-white divide-y divide-gray-200">
-                                        ${this.filteredData.slice(0, 100).map(item => `
-                                            <tr class="hover:bg-gray-50">
-                                                ${this.viewMode === 'voters' ? `
-                                                    <td class="px-6 py-4 whitespace-nowrap">
-                                                        <span class="px-2 py-1 text-xs font-semibold rounded ${item.county === 'Saline' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'}">
-                                                            ${item.county}
-                                                        </span>
-                                                    </td>
-                                                ` : `
-                                                    <td class="px-6 py-4 whitespace-nowrap">
-                                                        <span class="px-3 py-1 text-xs font-bold rounded ${item.isRegistered ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}">
-                                                            ${item.isRegistered ? '✓ REGISTERED' : '✗ NOT REGISTERED'}
-                                                        </span>
-                                                    </td>
-                                                `}
-                                                ${headers.map(h => `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${item[h] || '-'}</td>`).join('')}
-                                            </tr>
-                                        `).join('')}
-                                    </tbody>
-                                </table>
-                            </div>
-                            ${this.filteredData.length > 100 ? '<div class="bg-gray-50 px-6 py-4 text-sm text-gray-600 text-center">Showing first 100 results. Use filters to narrow your search or export all data.</div>' : ''}
-                        </div>
+                        <div id="tableSection" class="bg-white rounded-lg shadow overflow-hidden"></div>
+                    </div>
+                `;
+
+                this.uiBuilt = true;
+            },
+
+            // Full refresh of sections (used after mode changes / uploads / initial load)
+            renderAll() {
+                if (this.loading) {
+                    this.renderLoading();
+                    return;
+                }
+
+                this.renderStats();
+                this.renderViewToggle();
+                this.renderUpload();
+                this.renderFilters();     // creates the inputs/selects once for the current mode
+                this.renderTableOnly();   // table + count + footer
+            },
+
+            renderStats() {
+                const el = document.getElementById('statsGrid');
+                if (!el) return;
+
+                el.innerHTML = `
+                    <div class="bg-white rounded-lg shadow p-4">
+                        <p class="text-sm text-gray-600">Total Voters</p>
+                        <p class="text-2xl font-bold text-gray-900">${this.stats.totalVoters.toLocaleString()}</p>
+                    </div>
+                    <div class="bg-white rounded-lg shadow p-4">
+                        <p class="text-sm text-gray-600">Saline County</p>
+                        <p class="text-2xl font-bold text-gray-900">${this.stats.salineVoters.toLocaleString()}</p>
+                    </div>
+                    <div class="bg-white rounded-lg shadow p-4">
+                        <p class="text-sm text-gray-600">Garland County</p>
+                        <p class="text-2xl font-bold text-gray-900">${this.stats.garlandVoters.toLocaleString()}</p>
+                    </div>
+                    <div class="bg-white rounded-lg shadow p-4">
+                        <p class="text-sm text-gray-600">Total Parents</p>
+                        <p class="text-2xl font-bold text-gray-900">${this.stats.totalParents.toLocaleString()}</p>
+                    </div>
+                    <div class="bg-white rounded-lg shadow p-4">
+                        <p class="text-sm text-gray-600">Registered Parents</p>
+                        <p class="text-2xl font-bold text-green-700">${this.stats.registeredParents.toLocaleString()}</p>
+                    </div>
+                    <div class="bg-white rounded-lg shadow p-4">
+                        <p class="text-sm text-gray-600">Unregistered Parents</p>
+                        <p class="text-2xl font-bold text-orange-700">${this.stats.unregisteredParents.toLocaleString()}</p>
                     </div>
                 `;
             },
 
+            renderViewToggle() {
+                const el = document.getElementById('viewToggle');
+                if (!el) return;
+
+                el.innerHTML = `
+                    <div class="flex gap-2">
+                        <button onclick="App.setViewMode('voters')" class="flex-1 px-6 py-3 rounded-lg font-semibold transition ${this.viewMode === 'voters' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}">
+                            Voter Database (${this.stats.totalVoters.toLocaleString()})
+                        </button>
+                        <button onclick="App.setViewMode('parents')" class="flex-1 px-6 py-3 rounded-lg font-semibold transition ${this.viewMode === 'parents' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}">
+                            Parent Database (${this.stats.totalParents.toLocaleString()})
+                        </button>
+                    </div>
+                `;
+            },
+
+            renderUpload() {
+                const el = document.getElementById('uploadSection');
+                if (!el) return;
+
+                el.innerHTML = `
+                    <h2 class="text-xl font-bold mb-4">${this.viewMode === 'voters' ? 'Upload County Voter Files' : 'Upload Parent Data from SIS'}</h2>
+                    ${this.viewMode === 'voters' ? `
+                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                            <p class="text-sm text-blue-800"><strong>✓ Saline County data loads automatically</strong> from Google Sheets</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Upload Garland County Voters (XLSX)</label>
+                            <input type="file" accept=".xlsx,.xls" onchange="App.handleGarlandFileUpload(event)" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100">
+                        </div>
+                    ` : `
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Upload Parent List from SIS (XLSX)</label>
+                            <input type="file" accept=".xlsx,.xls" onchange="App.handleParentFileUpload(event)" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                            <p class="mt-2 text-sm text-gray-600">This will automatically match parents to registered voters.</p>
+                        </div>
+                    `}
+                `;
+            },
+
+            renderFilters() {
+                const el = document.getElementById('filterSection');
+                if (!el) return;
+
+                // Important: This section is only re-rendered when viewMode changes or after uploads/initial load.
+                // We do NOT rebuild it on every keystroke. That is what fixes the focus issue.
+                el.innerHTML = `
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div class="md:col-span-2">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Search</label>
+                            <input id="searchInput" type="text" placeholder="Search..." value="${this.searchTerm}"
+                                oninput="App.setSearch(event)"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        </div>
+
+                        ${this.viewMode === 'voters' ? `
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">County</label>
+                                <select id="countySelect" onchange="App.setCountyFilter(event.target.value)" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                                    <option value="all" ${this.countyFilter === 'all' ? 'selected' : ''}>All Counties</option>
+                                    <option value="Saline" ${this.countyFilter === 'Saline' ? 'selected' : ''}>Saline County</option>
+                                    <option value="Garland" ${this.countyFilter === 'Garland' ? 'selected' : ''}>Garland County</option>
+                                </select>
+                            </div>
+                        ` : `
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Registration Status</label>
+                                <select id="registeredSelect" onchange="App.setRegisteredFilter(event.target.value)" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                                    <option value="all" ${this.registeredFilter === 'all' ? 'selected' : ''}>All Parents</option>
+                                    <option value="registered" ${this.registeredFilter === 'registered' ? 'selected' : ''}>Registered Only</option>
+                                    <option value="unregistered" ${this.registeredFilter === 'unregistered' ? 'selected' : ''}>Unregistered Only</option>
+                                </select>
+                            </div>
+                        `}
+
+                        <div class="flex items-end">
+                            <button onclick="App.exportToExcel()" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                                Export to Excel
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="mt-4">
+                        <p id="showingLine" class="text-sm text-gray-600"></p>
+                    </div>
+                `;
+
+                // Immediately set the showing line now that it's created
+                this.renderShowingLineOnly();
+            },
+
+            getHeadersForCurrentMode() {
+                const headers =
+                    this.viewMode === 'voters' && this.voterData.length > 0
+                        ? Object.keys(this.voterData[0]).filter(key => !['id', 'county'].includes(key)).slice(0, 7)
+                        : this.parentData.length > 0
+                            ? Object.keys(this.parentData[0]).filter(key => !['id', 'isRegistered', 'matchedVoter'].includes(key)).slice(0, 7)
+                            : [];
+
+                return headers;
+            },
+
+            renderShowingLineOnly() {
+                const el = document.getElementById('showingLine');
+                if (!el) return;
+
+                const total = (this.viewMode === 'voters' ? this.voterData.length : this.parentData.length);
+                el.textContent = `Showing ${this.filteredData.length.toLocaleString()} of ${total.toLocaleString()} records`;
+            },
+
+            // ---------- UI: FAST path (table-only re-render) ----------
+            renderTableOnly() {
+                const tableContainer = document.getElementById('tableSection');
+                if (!tableContainer) return;
+
+                const headers = this.getHeadersForCurrentMode();
+
+                tableContainer.innerHTML = `
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    ${this.viewMode === 'voters'
+                                        ? '<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">County</th>'
+                                        : '<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>'}
+                                    ${headers.map(h => `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">${h.replace(/_/g, ' ')}</th>`).join('')}
+                                </tr>
+                            </thead>
+                            <tbody id="tableBody" class="bg-white divide-y divide-gray-200"></tbody>
+                        </table>
+                    </div>
+                    <div id="tableFooter"></div>
+                `;
+
+                // Fill table body + footer without touching filters/search inputs
+                this.renderTableBodyAndFooter(headers);
+                this.renderShowingLineOnly();
+            },
+
+            renderTableBodyAndFooter(headers) {
+                const body = document.getElementById('tableBody');
+                const footer = document.getElementById('tableFooter');
+                if (!body || !footer) return;
+
+                const rowsHtml = this.filteredData.slice(0, 100).map(item => `
+                    <tr class="hover:bg-gray-50">
+                        ${this.viewMode === 'voters' ? `
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="px-2 py-1 text-xs font-semibold rounded ${item.county === 'Saline' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'}">
+                                    ${item.county}
+                                </span>
+                            </td>
+                        ` : `
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="px-3 py-1 text-xs font-bold rounded ${item.isRegistered ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}">
+                                    ${item.isRegistered ? '✓ REGISTERED' : '✗ NOT REGISTERED'}
+                                </span>
+                            </td>
+                        `}
+                        ${headers.map(h => `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${item[h] || '-'}</td>`).join('')}
+                    </tr>
+                `).join('');
+
+                body.innerHTML = rowsHtml;
+
+                footer.innerHTML = this.filteredData.length > 100
+                    ? `<div class="bg-gray-50 px-6 py-4 text-sm text-gray-600 text-center">Showing first 100 results. Use filters to narrow your search or export all data.</div>`
+                    : '';
+            },
+
+            // ---------- Handlers (optimized) ----------
             setViewMode(mode) {
                 this.viewMode = mode;
                 this.applyFilters();
-                this.render();
+                // view mode changes affect filters UI + upload UI + headers, so full section refresh is safest
+                this.renderAll();
             },
 
-            setSearch(term) {
-                this.searchTerm = term;
+            setSearch(e) {
+                this.searchTerm = e.target.value;
                 this.applyFilters();
-                this.render();
+
+                // FAST: only update showing line + table (no rebuild of the input, so focus stays)
+                const headers = this.getHeadersForCurrentMode();
+                this.renderShowingLineOnly();
+                this.renderTableBodyAndFooter(headers);
             },
 
             setCountyFilter(filter) {
                 this.countyFilter = filter;
                 this.applyFilters();
-                this.render();
+
+                // FAST: update showing line + table only
+                const headers = this.getHeadersForCurrentMode();
+                this.renderShowingLineOnly();
+                this.renderTableBodyAndFooter(headers);
             },
 
             setRegisteredFilter(filter) {
                 this.registeredFilter = filter;
                 this.applyFilters();
-                this.render();
+
+                // FAST: update showing line + table only
+                const headers = this.getHeadersForCurrentMode();
+                this.renderShowingLineOnly();
+                this.renderTableBodyAndFooter(headers);
             }
         };
 
