@@ -6,6 +6,7 @@
     <title>Fountain Lake School District - Voter Database</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dexie/3.2.4/dexie.min.js"></script>
     <style>
         body { font-family: system-ui, -apple-system, sans-serif; }
     </style>
@@ -14,6 +15,14 @@
     <div id="app"></div>
 
     <script>
+        // Initialize IndexedDB using Dexie
+        const db = new Dexie('FountainLakeVoterDB');
+        db.version(1).stores({
+            voters: '++id, county',
+            parents: '++id, isRegistered',
+            metadata: 'key'
+        });
+
         const App = {
             voterData: [],
             parentData: [],
@@ -22,6 +31,7 @@
             countyFilter: 'all',
             registeredFilter: 'all',
             viewMode: 'voters',
+            loading: true,
             stats: {
                 totalVoters: 0,
                 salineVoters: 0,
@@ -31,29 +41,33 @@
                 totalParents: 0
             },
 
-            init() {
-                this.loadFromLocalStorage();
+            async init() {
+                await this.loadFromDB();
+                this.loading = false;
                 this.render();
             },
 
-            loadFromLocalStorage() {
-                const voterJson = localStorage.getItem('fl-voter-data');
-                const parentJson = localStorage.getItem('fl-parent-data');
-                
-                if (voterJson) {
-                    this.voterData = JSON.parse(voterJson);
+            async loadFromDB() {
+                try {
+                    this.voterData = await db.voters.toArray();
+                    this.parentData = await db.parents.toArray();
+                    this.updateStats();
+                    this.applyFilters();
+                } catch (error) {
+                    console.log('No stored data found, starting fresh');
                 }
-                if (parentJson) {
-                    this.parentData = JSON.parse(parentJson);
-                }
-                
-                this.updateStats();
-                this.applyFilters();
             },
 
-            saveToLocalStorage() {
-                localStorage.setItem('fl-voter-data', JSON.stringify(this.voterData));
-                localStorage.setItem('fl-parent-data', JSON.stringify(this.parentData));
+            async saveToDB() {
+                try {
+                    await db.voters.clear();
+                    await db.voters.bulkAdd(this.voterData);
+                    await db.parents.clear();
+                    await db.parents.bulkAdd(this.parentData);
+                } catch (error) {
+                    console.error('Error saving to database:', error);
+                    alert('Error saving data. Please try again.');
+                }
             },
 
             updateStats() {
@@ -68,12 +82,15 @@
                 };
             },
 
-            handleVoterFileUpload(e, county) {
+            async handleVoterFileUpload(e, county) {
                 const file = e.target.files[0];
                 if (!file) return;
 
+                this.loading = true;
+                this.render();
+
                 const reader = new FileReader();
-                reader.onload = (event) => {
+                reader.onload = async (event) => {
                     try {
                         const data = new Uint8Array(event.target.result);
                         const workbook = XLSX.read(data, { type: 'array' });
@@ -82,44 +99,54 @@
                         
                         const otherCountyData = this.voterData.filter(v => v.county !== county);
                         const processedData = jsonData.map((row, index) => ({
-                            id: otherCountyData.length + index,
                             county: county,
                             ...row
                         }));
 
                         this.voterData = [...otherCountyData, ...processedData];
-                        this.saveToLocalStorage();
+                        await this.saveToDB();
                         
                         if (this.parentData.length > 0) {
-                            this.matchParentsToVoters();
+                            await this.matchParentsToVoters();
                         }
                         
                         this.updateStats();
                         this.applyFilters();
+                        this.loading = false;
                         this.render();
                     } catch (error) {
+                        console.error('Error processing file:', error);
                         alert('Error processing file: ' + error.message);
+                        this.loading = false;
+                        this.render();
                     }
                 };
                 reader.readAsArrayBuffer(file);
             },
 
-            handleParentFileUpload(e) {
+            async handleParentFileUpload(e) {
                 const file = e.target.files[0];
                 if (!file) return;
 
+                this.loading = true;
+                this.render();
+
                 const reader = new FileReader();
-                reader.onload = (event) => {
+                reader.onload = async (event) => {
                     try {
                         const data = new Uint8Array(event.target.result);
                         const workbook = XLSX.read(data, { type: 'array' });
                         const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
                         const jsonData = XLSX.utils.sheet_to_json(firstSheet, { raw: false, defval: '' });
                         
-                        this.matchParentsToVoters(jsonData);
+                        await this.matchParentsToVoters(jsonData);
+                        this.loading = false;
                         this.render();
                     } catch (error) {
+                        console.error('Error processing file:', error);
                         alert('Error processing file: ' + error.message);
+                        this.loading = false;
+                        this.render();
                     }
                 };
                 reader.readAsArrayBuffer(file);
@@ -130,7 +157,7 @@
                 return str.toString().toLowerCase().trim().replace(/[^a-z0-9]/g, '');
             },
 
-            matchParentsToVoters(parents = null) {
+            async matchParentsToVoters(parents = null) {
                 const parentsToMatch = parents || this.parentData;
                 
                 this.parentData = parentsToMatch.map((parent, index) => {
@@ -160,14 +187,13 @@
                     }
 
                     return {
-                        id: index,
                         ...parent,
                         isRegistered,
                         matchedVoter
                     };
                 });
 
-                this.saveToLocalStorage();
+                await this.saveToDB();
                 this.updateStats();
                 this.applyFilters();
             },
@@ -215,6 +241,18 @@
             render() {
                 const app = document.getElementById('app');
                 
+                if (this.loading) {
+                    app.innerHTML = `
+                        <div class="flex items-center justify-center h-screen bg-gray-50">
+                            <div class="text-center">
+                                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                                <p class="text-gray-600">Processing data...</p>
+                            </div>
+                        </div>
+                    `;
+                    return;
+                }
+
                 const headers = this.viewMode === 'voters' && this.voterData.length > 0 
                     ? Object.keys(this.voterData[0]).filter(key => !['id', 'county'].includes(key)).slice(0, 7)
                     : this.parentData.length > 0 
