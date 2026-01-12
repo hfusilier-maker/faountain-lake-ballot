@@ -6,7 +6,7 @@
     <title>Fountain Lake School District - Voter Database</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/dexie/3.2.4/dexie.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
         body { font-family: system-ui, -apple-system, sans-serif; }
     </style>
@@ -15,14 +15,9 @@
     <div id="app"></div>
 
     <script>
-        // Initialize IndexedDB using Dexie
-        const db = new Dexie('FountainLakeVoterDB');
-        db.version(1).stores({
-            voters: '++id, county',
-            parents: '++id, isRegistered',
-            metadata: 'key'
-        });
-
+        const SALINE_SHEET_ID = '13Ot79wlChxVJqenZWGgl4uO9frQyDHd-DIJ_xGFbOrU';
+        const SALINE_SHEET_NAME = 'Ft Lake_Saline voters';
+        
         const App = {
             voterData: [],
             parentData: [],
@@ -42,31 +37,44 @@
             },
 
             async init() {
-                await this.loadFromDB();
+                await this.loadSalineData();
                 this.loading = false;
                 this.render();
             },
 
-            async loadFromDB() {
+            async loadSalineData() {
                 try {
-                    this.voterData = await db.voters.toArray();
-                    this.parentData = await db.parents.toArray();
-                    this.updateStats();
-                    this.applyFilters();
+                    const url = `https://docs.google.com/spreadsheets/d/${SALINE_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SALINE_SHEET_NAME)}`;
+                    
+                    const response = await fetch(url);
+                    const csvText = await response.text();
+                    
+                    Papa.parse(csvText, {
+                        header: true,
+                        skipEmptyLines: true,
+                        complete: (results) => {
+                            this.voterData = results.data.map((row, index) => ({
+                                id: index,
+                                county: 'Saline',
+                                ...row
+                            }));
+                            this.updateStats();
+                            this.applyFilters();
+                            this.loading = false;
+                            this.render();
+                        },
+                        error: (error) => {
+                            console.error('Error parsing CSV:', error);
+                            alert('Error loading voter data from Google Sheets');
+                            this.loading = false;
+                            this.render();
+                        }
+                    });
                 } catch (error) {
-                    console.log('No stored data found, starting fresh');
-                }
-            },
-
-            async saveToDB() {
-                try {
-                    await db.voters.clear();
-                    await db.voters.bulkAdd(this.voterData);
-                    await db.parents.clear();
-                    await db.parents.bulkAdd(this.parentData);
-                } catch (error) {
-                    console.error('Error saving to database:', error);
-                    alert('Error saving data. Please try again.');
+                    console.error('Error loading Google Sheet:', error);
+                    alert('Error connecting to Google Sheets. Please make sure the sheet is publicly accessible.');
+                    this.loading = false;
+                    this.render();
                 }
             },
 
@@ -82,7 +90,7 @@
                 };
             },
 
-            async handleVoterFileUpload(e, county) {
+            async handleGarlandFileUpload(e) {
                 const file = e.target.files[0];
                 if (!file) return;
 
@@ -90,24 +98,23 @@
                 this.render();
 
                 const reader = new FileReader();
-                reader.onload = async (event) => {
+                reader.onload = (event) => {
                     try {
                         const data = new Uint8Array(event.target.result);
                         const workbook = XLSX.read(data, { type: 'array' });
                         const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
                         const jsonData = XLSX.utils.sheet_to_json(firstSheet, { raw: false, defval: '' });
                         
-                        const otherCountyData = this.voterData.filter(v => v.county !== county);
-                        const processedData = jsonData.map((row, index) => ({
-                            county: county,
+                        const garlandData = jsonData.map((row, index) => ({
+                            id: this.voterData.length + index,
+                            county: 'Garland',
                             ...row
                         }));
 
-                        this.voterData = [...otherCountyData, ...processedData];
-                        await this.saveToDB();
+                        this.voterData = [...this.voterData.filter(v => v.county === 'Saline'), ...garlandData];
                         
                         if (this.parentData.length > 0) {
-                            await this.matchParentsToVoters();
+                            this.matchParentsToVoters();
                         }
                         
                         this.updateStats();
@@ -124,7 +131,7 @@
                 reader.readAsArrayBuffer(file);
             },
 
-            async handleParentFileUpload(e) {
+            handleParentFileUpload(e) {
                 const file = e.target.files[0];
                 if (!file) return;
 
@@ -132,14 +139,14 @@
                 this.render();
 
                 const reader = new FileReader();
-                reader.onload = async (event) => {
+                reader.onload = (event) => {
                     try {
                         const data = new Uint8Array(event.target.result);
                         const workbook = XLSX.read(data, { type: 'array' });
                         const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
                         const jsonData = XLSX.utils.sheet_to_json(firstSheet, { raw: false, defval: '' });
                         
-                        await this.matchParentsToVoters(jsonData);
+                        this.matchParentsToVoters(jsonData);
                         this.loading = false;
                         this.render();
                     } catch (error) {
@@ -157,7 +164,7 @@
                 return str.toString().toLowerCase().trim().replace(/[^a-z0-9]/g, '');
             },
 
-            async matchParentsToVoters(parents = null) {
+            matchParentsToVoters(parents = null) {
                 const parentsToMatch = parents || this.parentData;
                 
                 this.parentData = parentsToMatch.map((parent, index) => {
@@ -170,10 +177,10 @@
                     let matchedVoter = null;
 
                     for (const voter of this.voterData) {
-                        const voterLastName = this.normalizeString(voter['Last Name'] || voter['LastName']);
-                        const voterFirstName = this.normalizeString(voter['First Name'] || voter['FirstName']);
-                        const voterAddress = this.normalizeString(voter['Residential Street 1'] || voter['Address'] || voter['Street']);
-                        const voterCity = this.normalizeString(voter['Residential City'] || voter['City']);
+                        const voterLastName = this.normalizeString(voter['Last Name'] || voter['LastName'] || voter['nam_text']);
+                        const voterFirstName = this.normalizeString(voter['First Name'] || voter['FirstName'] || voter['nam_first']);
+                        const voterAddress = this.normalizeString(voter['Residential Street 1'] || voter['Address'] || voter['Street'] || voter['regis_cde']);
+                        const voterCity = this.normalizeString(voter['Residential City'] || voter['City'] || voter['regis_text']);
 
                         if (parentLastName && voterLastName && parentLastName === voterLastName) {
                             if ((parentAddress && voterAddress && parentAddress === voterAddress) ||
@@ -187,13 +194,13 @@
                     }
 
                     return {
+                        id: index,
                         ...parent,
                         isRegistered,
                         matchedVoter
                     };
                 });
 
-                await this.saveToDB();
                 this.updateStats();
                 this.applyFilters();
             },
@@ -226,11 +233,15 @@
             },
 
             exportToExcel() {
-                const dataToExport = this.viewMode === 'voters' ? this.filteredData : this.filteredData.map(p => ({
-                    ...p,
-                    'Registration Status': p.isRegistered ? 'REGISTERED' : 'NOT REGISTERED',
-                    'Matched Voter': p.matchedVoter ? `${p.matchedVoter['First Name']} ${p.matchedVoter['Last Name']}` : 'N/A'
-                }));
+                const dataToExport = this.viewMode === 'voters' ? this.filteredData : this.filteredData.map(p => {
+                    const exported = {...p};
+                    delete exported.matchedVoter;
+                    exported['Registration Status'] = p.isRegistered ? 'REGISTERED' : 'NOT REGISTERED';
+                    if (p.matchedVoter) {
+                        exported['Matched Voter'] = `${p.matchedVoter['nam_first'] || p.matchedVoter['First Name'] || ''} ${p.matchedVoter['nam_text'] || p.matchedVoter['Last Name'] || ''}`;
+                    }
+                    return exported;
+                });
                 
                 const ws = XLSX.utils.json_to_sheet(dataToExport);
                 const wb = XLSX.utils.book_new();
@@ -246,7 +257,7 @@
                         <div class="flex items-center justify-center h-screen bg-gray-50">
                             <div class="text-center">
                                 <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                                <p class="text-gray-600">Processing data...</p>
+                                <p class="text-gray-600">Loading voter data from Google Sheets...</p>
                             </div>
                         </div>
                     `;
@@ -310,15 +321,12 @@
                         <div class="bg-white rounded-lg shadow p-6 mb-6">
                             <h2 class="text-xl font-bold mb-4">${this.viewMode === 'voters' ? 'Upload County Voter Files' : 'Upload Parent Data from SIS'}</h2>
                             ${this.viewMode === 'voters' ? `
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-2">Upload Garland County Voters (XLSX)</label>
-                                        <input type="file" accept=".xlsx,.xls" onchange="App.handleVoterFileUpload(event, 'Garland')" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100">
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-2">Upload Saline County Voters (XLSX)</label>
-                                        <input type="file" accept=".xlsx,.xls" onchange="App.handleVoterFileUpload(event, 'Saline')" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100">
-                                    </div>
+                                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                                    <p class="text-sm text-blue-800"><strong>✓ Saline County data loads automatically</strong> from Google Sheets</p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Upload Garland County Voters (XLSX)</label>
+                                    <input type="file" accept=".xlsx,.xls" onchange="App.handleGarlandFileUpload(event)" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100">
                                 </div>
                             ` : `
                                 <div>
