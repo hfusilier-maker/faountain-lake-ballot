@@ -19,6 +19,8 @@
         const SALINE_SHEET_NAME = 'Ft Lake_Saline voters';
         const GARLAND_SHEET_ID = '1DI5wpYUJu7EGIb-VuStKUdfpSRbcEWp4heFcN1f4eG0';
         const GARLAND_SHEET_NAME = 'Sheet1';
+        const PARENT_SHEET_ID = '1_ULGdswJxQ1PkwNsp4pbCmVNS2S3x6Fg-7qxyMB-6IU';
+        const PARENT_SHEET_NAME = 'Sheet1';
         
         const App = {
             voterData: [],
@@ -43,6 +45,7 @@
                     this.loadSalineData(),
                     this.loadGarlandData()
                 ]);
+                await this.loadParentData();
                 this.loading = false;
                 this.render();
             },
@@ -170,6 +173,28 @@
                 return [streetAddress, cityStateZip].filter(Boolean).join(', ') || 'N/A';
             },
 
+            async loadParentData() {
+                try {
+                    const url = `https://docs.google.com/spreadsheets/d/${PARENT_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(PARENT_SHEET_NAME)}`;
+                    
+                    const response = await fetch(url);
+                    const csvText = await response.text();
+                    
+                    Papa.parse(csvText, {
+                        header: true,
+                        skipEmptyLines: true,
+                        complete: (results) => {
+                            this.matchParentsToVoters(results.data);
+                        },
+                        error: (error) => {
+                            console.error('Error parsing Parent CSV:', error);
+                        }
+                    });
+                } catch (error) {
+                    console.error('Error loading Parent Google Sheet:', error);
+                }
+            },
+
             updateStats() {
                 const registeredParents = this.parentData.filter(p => p.isRegistered).length;
                 this.stats = {
@@ -260,36 +285,74 @@
                 const parentsToMatch = parents || this.parentData;
                 
                 this.parentData = parentsToMatch.map((parent, index) => {
-                    const parentLastName = this.normalizeString(parent['Last Name'] || parent['LastName'] || parent['Parent Last Name']);
-                    const parentFirstName = this.normalizeString(parent['First Name'] || parent['FirstName'] || parent['Parent First Name']);
-                    const parentAddress = this.normalizeString(parent['Address'] || parent['Street Address'] || parent['Physical Address']);
-                    const parentCity = this.normalizeString(parent['City']);
+                    // Try different possible column names for parent data
+                    const parentLastName = this.normalizeString(
+                        parent['Last Name'] || parent['LastName'] || parent['Parent Last Name'] || 
+                        parent['last_name'] || parent['parent_last_name'] || ''
+                    );
+                    const parentFirstName = this.normalizeString(
+                        parent['First Name'] || parent['FirstName'] || parent['Parent First Name'] || 
+                        parent['first_name'] || parent['parent_first_name'] || ''
+                    );
+                    const parentAddress = this.normalizeString(
+                        parent['Address'] || parent['Street Address'] || parent['Physical Address'] || 
+                        parent['address'] || parent['street_address'] || ''
+                    );
+                    const parentCity = this.normalizeString(
+                        parent['City'] || parent['city'] || ''
+                    );
                     
                     let isRegistered = false;
                     let matchedVoter = null;
+                    let matchMethod = '';
 
+                    // Search through ALL voters (both Saline and Garland)
                     for (const voter of this.voterData) {
-                        const voterLastName = this.normalizeString(voter['Last Name'] || voter['LastName'] || voter['nam_text']);
-                        const voterFirstName = this.normalizeString(voter['First Name'] || voter['FirstName'] || voter['nam_first']);
-                        const voterAddress = this.normalizeString(voter['Residential Street 1'] || voter['Address'] || voter['Street'] || voter['regis_cde']);
-                        const voterCity = this.normalizeString(voter['Residential City'] || voter['City'] || voter['regis_text']);
-
+                        const voterLastName = this.normalizeString(voter.lastName || '');
+                        const voterFirstName = this.normalizeString(voter.firstName || '');
+                        const voterAddress = this.normalizeString(voter.fullAddress || '');
+                        
+                        // Match by Last Name + First Name + City/Address
                         if (parentLastName && voterLastName && parentLastName === voterLastName) {
-                            if ((parentAddress && voterAddress && parentAddress === voterAddress) ||
-                                (parentFirstName && voterFirstName && parentCity && voterCity &&
-                                 parentFirstName === voterFirstName && parentCity === voterCity)) {
-                                isRegistered = true;
-                                matchedVoter = voter;
-                                break;
+                            if (parentFirstName && voterFirstName && parentFirstName === voterFirstName) {
+                                // Strong match: Last + First + Address contains city
+                                if (parentCity && voterAddress.includes(parentCity)) {
+                                    isRegistered = true;
+                                    matchedVoter = voter;
+                                    matchMethod = 'Name + City';
+                                    break;
+                                }
+                                // Weaker match: Just Last + First
+                                if (!isRegistered) {
+                                    isRegistered = true;
+                                    matchedVoter = voter;
+                                    matchMethod = 'Name Only';
+                                }
                             }
                         }
                     }
 
+                    // Build full address for parent
+                    const parentFullAddress = this.buildAddress(
+                        parent['Street Number'] || parent['street_number'] || '',
+                        parent['Street Name'] || parent['street_name'] || parent['Address'] || '',
+                        parent['City'] || parent['city'] || '',
+                        parent['State'] || parent['state'] || '',
+                        parent['Zip'] || parent['zip'] || parent['Zip Code'] || ''
+                    );
+
                     return {
                         id: index,
-                        ...parent,
+                        firstName: parent['First Name'] || parent['FirstName'] || parent['first_name'] || '',
+                        lastName: parent['Last Name'] || parent['LastName'] || parent['last_name'] || '',
+                        fullAddress: parentFullAddress,
+                        phone: parent['Phone'] || parent['phone'] || parent['Phone Number'] || '',
+                        email: parent['Email'] || parent['email'] || '',
+                        studentName: parent['Student Name'] || parent['student_name'] || '',
                         isRegistered,
-                        matchedVoter
+                        matchedVoter,
+                        matchMethod,
+                        ...parent
                     };
                 });
 
@@ -411,19 +474,16 @@
 
                         <!-- Upload -->
                         <div class="bg-white rounded-lg shadow p-6 mb-6">
-                            <h2 class="text-xl font-bold mb-4">${this.viewMode === 'voters' ? 'Data Sources' : 'Upload Parent Data from SIS'}</h2>
-                            ${this.viewMode === 'voters' ? `
-                                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                                    <p class="text-sm text-blue-800"><strong>✓ Saline County & Garland County data loads automatically</strong> from Google Sheets</p>
-                                    <p class="text-xs text-blue-600 mt-1">Data updates when you update your Google Sheets</p>
-                                </div>
-                            ` : `
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">Upload Parent List from SIS (XLSX)</label>
-                                    <input type="file" accept=".xlsx,.xls" onchange="App.handleParentFileUpload(event)" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
-                                    <p class="mt-2 text-sm text-gray-600">This will automatically match parents to registered voters.</p>
-                                </div>
-                            `}
+                            <h2 class="text-xl font-bold mb-4">Data Sources</h2>
+                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                <p class="text-sm text-blue-800"><strong>✓ All data loads automatically</strong> from Google Sheets</p>
+                                <ul class="text-xs text-blue-600 mt-2 ml-4 list-disc">
+                                    <li>Saline County Voters</li>
+                                    <li>Garland County Voters</li>
+                                    <li>Parent Database (matched against both counties)</li>
+                                </ul>
+                                <p class="text-xs text-blue-600 mt-2">Data updates when you update your Google Sheets</p>
+                            </div>
                         </div>
 
                         <!-- Search & Filter -->
@@ -518,6 +578,44 @@
             },
 
             getTableHTML() {
+                if (this.viewMode === 'parents') {
+                    return `
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Registered</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">First Name</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Name</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Address</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                ${this.filteredData.slice(0, 100).map(parent => `
+                                    <tr class="hover:bg-gray-50">
+                                        <td class="px-6 py-4 whitespace-nowrap text-center">
+                                            ${parent.isRegistered ? 
+                                                '<span class="text-2xl text-green-600">✓</span>' : 
+                                                '<span class="text-2xl text-red-600">✗</span>'
+                                            }
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.firstName || '-'}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.lastName || '-'}</td>
+                                        <td class="px-6 py-4 text-sm text-gray-900" style="max-width: 250px; white-space: normal;">${parent.fullAddress || '-'}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.phone || '-'}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.email || '-'}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.studentName || '-'}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                        ${this.filteredData.length > 100 ? '<div class="bg-gray-50 px-6 py-4 text-sm text-gray-600 text-center">Showing first 100 results. Use filters to narrow your search or export all data.</div>' : ''}
+                    `;
+                }
+                
+                // Voter view
                 return `
                     <table class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gray-50">
