@@ -19,7 +19,7 @@
         const SALINE_SHEET_NAME = 'Ft Lake_Saline voters';
         const GARLAND_SHEET_ID = '1DI5wpYUJu7EGIb-VuStKUdfpSRbcEWp4heFcN1f4eG0';
         const GARLAND_SHEET_NAME = 'Sheet1';
-        const PARENT_SHEET_ID = '1_ULGdswJxQ1PkwNsp4pbCmVNS2S3x6Fg-7qxyMB-6IU';
+        const PARENT_SHEET_ID = '1CRJV-1LfOhIH_nlTMrfe7uaa9VDv4v2UhQG-wrWQMV0';
         const PARENT_SHEET_NAME = 'Sheet1';
         
         const App = {
@@ -285,11 +285,15 @@
                 const parentsToMatch = parents || this.parentData;
                 
                 this.parentData = parentsToMatch.map((parent, index) => {
-                    // Get parent info
-                    const parentFirstName = parent['First Name'] || parent['first_name'] || '';
-                    const parentLastName = parent['Last Name'] || parent['last_name'] || '';
-                    const parentContactAddress = parent['Contact Address'] || parent['contact_address'] || '';
-                    const parentCityStateZip = parent['City-State-Zip'] || parent['city_state_zip'] || '';
+                    // Parse Contact Name (format: "Last, First" or "Last, First Middle")
+                    const contactName = parent['Contact Name'] || '';
+                    const nameParts = contactName.split(',').map(s => s.trim());
+                    const parentLastName = nameParts[0] || '';
+                    const parentFirstName = nameParts[1] ? nameParts[1].split(' ')[0] : ''; // Get just first name, ignore middle
+                    
+                    const parentContactAddress = parent['Contact Address'] || '';
+                    const parentCityStateZip = parent['City-State-Zip'] || '';
+                    const overrideRegistered = (parent['Override Registered'] || '').toLowerCase() === 'yes';
                     
                     // Parse parent address
                     const parentParsed = this.parseParentAddress(parentContactAddress, parentCityStateZip);
@@ -298,36 +302,42 @@
                     let matchedVoter = null;
                     let matchMethod = '';
 
-                    // PRIORITY 1: Address Matching (Street Number + Street Name + Zip)
-                    for (const voter of this.voterData) {
-                        const voterParsed = this.parseVoterAddress(voter);
-                        
-                        if (this.addressesMatch(parentParsed, voterParsed)) {
-                            isRegistered = true;
-                            matchedVoter = voter;
-                            matchMethod = 'Address Match';
-                            break;
-                        }
-                    }
-                    
-                    // PRIORITY 2: Name + City Fallback (only if address didn't match)
-                    if (!isRegistered) {
-                        const parentLastNorm = this.normalizeString(parentLastName);
-                        const parentFirstNorm = this.normalizeString(parentFirstName);
-                        const parentCity = this.normalizeString(parentParsed.city);
-                        
+                    // Check manual override first
+                    if (overrideRegistered) {
+                        isRegistered = true;
+                        matchMethod = 'Manual Override';
+                    } else {
+                        // PRIORITY 1: Address Matching (Street Number + Street Name + Zip)
                         for (const voter of this.voterData) {
-                            const voterLastNorm = this.normalizeString(voter.lastName || '');
-                            const voterFirstNorm = this.normalizeString(voter.firstName || '');
-                            const voterCity = this.normalizeString(this.parseVoterAddress(voter).city);
+                            const voterParsed = this.parseVoterAddress(voter);
                             
-                            if (parentLastNorm && voterLastNorm && parentLastNorm === voterLastNorm &&
-                                parentFirstNorm && voterFirstNorm && parentFirstNorm === voterFirstNorm &&
-                                parentCity && voterCity && parentCity === voterCity) {
+                            if (this.addressesMatch(parentParsed, voterParsed)) {
                                 isRegistered = true;
                                 matchedVoter = voter;
-                                matchMethod = 'Name + City Match';
+                                matchMethod = 'Address Match';
                                 break;
+                            }
+                        }
+                        
+                        // PRIORITY 2: Name + City Fallback (only if address didn't match)
+                        if (!isRegistered) {
+                            const parentLastNorm = this.normalizeString(parentLastName);
+                            const parentFirstNorm = this.normalizeString(parentFirstName);
+                            const parentCity = this.normalizeString(parentParsed.city);
+                            
+                            for (const voter of this.voterData) {
+                                const voterLastNorm = this.normalizeString(voter.lastName || '');
+                                const voterFirstNorm = this.normalizeString(voter.firstName || '');
+                                const voterCity = this.normalizeString(this.parseVoterAddress(voter).city);
+                                
+                                if (parentLastNorm && voterLastNorm && parentLastNorm === voterLastNorm &&
+                                    parentFirstNorm && voterFirstNorm && parentFirstNorm === voterFirstNorm &&
+                                    parentCity && voterCity && parentCity === voterCity) {
+                                    isRegistered = true;
+                                    matchedVoter = voter;
+                                    matchMethod = 'Name + City (Addr Mismatch)';
+                                    break;
+                                }
                             }
                         }
                     }
@@ -338,12 +348,12 @@
                         lastName: parentLastName,
                         fullAddress: parentContactAddress,
                         cityStateZip: parentCityStateZip,
-                        phone: parent['Contact Phone'] || parent['contact_phone'] || '',
-                        email: parent['Email'] || parent['email'] || '',
-                        studentName: parent['Student Name'] || parent['student_name'] || '',
+                        phone: parent['Contact Phone'] || '',
+                        relationship: parent['Relationship'] || '',
                         isRegistered,
                         matchedVoter,
                         matchMethod,
+                        overrideRegistered,
                         ...parent
                     };
                 });
@@ -649,7 +659,13 @@
                                     <tr class="hover:bg-gray-50">
                                         <td class="px-6 py-4 whitespace-nowrap text-center">
                                             ${parent.isRegistered ? 
-                                                '<span class="text-2xl text-green-600">✓</span>' : 
+                                                `<div class="flex items-center justify-center gap-1">
+                                                    <span class="text-2xl text-green-600">✓</span>
+                                                    ${parent.matchMethod === 'Manual Override' ? 
+                                                        '<span class="text-xs text-blue-600" title="Manual Override">👤</span>' : 
+                                                     parent.matchMethod === 'Name + City (Addr Mismatch)' ?
+                                                        '<span class="text-xs text-yellow-600" title="Address Mismatch">⚠️</span>' : ''}
+                                                </div>` : 
                                                 '<span class="text-2xl text-red-600">✗</span>'
                                             }
                                         </td>
@@ -658,8 +674,11 @@
                                         <td class="px-6 py-4 text-sm text-gray-900" style="max-width: 250px; white-space: normal;">
                                             ${parent.fullAddress || '-'}
                                             ${parent.cityStateZip ? '<br><span class="text-gray-600 text-xs">' + parent.cityStateZip + '</span>' : ''}
+                                            ${parent.matchMethod ? '<br><span class="text-gray-500 text-xs italic">' + parent.matchMethod + '</span>' : ''}
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.phone || '-'}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.email || '-'}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.studentName || '-'}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.email || '-'}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.studentName || '-'}</td>
                                     </tr>
