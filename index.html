@@ -281,6 +281,52 @@
                 return str.toString().toLowerCase().trim().replace(/[^a-z0-9]/g, '');
             },
 
+            normalizeAddress(str) {
+                if (!str) return '';
+                
+                // Convert to lowercase and normalize whitespace
+                let normalized = str.toString().toLowerCase().trim();
+                
+                // Normalize common street abbreviations
+                const abbreviations = {
+                    'highway': 'hwy',
+                    'hwy': 'hwy',
+                    'road': 'rd',
+                    'rd': 'rd',
+                    'street': 'st',
+                    'st': 'st',
+                    'avenue': 'ave',
+                    'ave': 'ave',
+                    'drive': 'dr',
+                    'dr': 'dr',
+                    'lane': 'ln',
+                    'ln': 'ln',
+                    'court': 'ct',
+                    'ct': 'ct',
+                    'circle': 'cir',
+                    'cir': 'cir',
+                    'boulevard': 'blvd',
+                    'blvd': 'blvd',
+                    'place': 'pl',
+                    'pl': 'pl',
+                    'trail': 'trl',
+                    'trl': 'trl',
+                    'parkway': 'pkwy',
+                    'pkwy': 'pkwy',
+                    'way': 'way',
+                    'loop': 'loop'
+                };
+                
+                // Replace abbreviations
+                Object.keys(abbreviations).forEach(key => {
+                    const regex = new RegExp('\\b' + key + '\\b', 'gi');
+                    normalized = normalized.replace(regex, abbreviations[key]);
+                });
+                
+                // Remove all non-alphanumeric characters
+                return normalized.replace(/[^a-z0-9]/g, '');
+            },
+
             matchParentsToVoters(parents = null) {
                 const parentsToMatch = parents || this.parentData;
                 
@@ -363,10 +409,10 @@
             },
 
             parseParentAddress(contactAddress, cityStateZip) {
-                // Parse "5817 Highway 9" and "Benton, AR 72019"
+                // Parse "5817 Highway 9" or "5817 Hwy 9" and "Benton, AR 72019"
                 const addressParts = (contactAddress || '').trim().split(/\s+/);
                 const streetNumber = addressParts[0] || '';
-                const streetName = addressParts.slice(1).join(' ').toLowerCase().trim();
+                const streetName = addressParts.slice(1).join(' ');
                 
                 // Parse "Benton, AR 72019" or "Hot Springs, AR 71901"
                 const cityStateZipParts = (cityStateZip || '').split(',');
@@ -376,7 +422,7 @@
                 
                 return {
                     streetNumber: this.normalizeString(streetNumber),
-                    streetName: this.normalizeString(streetName),
+                    streetName: this.normalizeAddress(streetName),
                     city: city,
                     zip: zip
                 };
@@ -389,17 +435,12 @@
                     voter['text_registrant_res_street_nbr'] || 
                     ''
                 );
-                const streetName = this.normalizeString(
-                    voter['text_street_name'] || ''
-                );
-                const streetType = this.normalizeString(
-                    voter['cde_street_type'] || 
-                    voter['cde_street_dir_suffix'] || 
-                    ''
-                );
+                const streetName = voter['text_street_name'] || '';
+                const streetType = voter['cde_street_type'] || 
+                    voter['cde_street_dir_suffix'] || '';
                 
-                // Combine street name and type
-                const fullStreetName = [streetName, streetType].filter(Boolean).join('');
+                // Combine street name and type, then normalize
+                const fullStreetName = this.normalizeAddress([streetName, streetType].filter(Boolean).join(' '));
                 
                 const city = voter['text_res_city'] || voter['text_mail_city'] || '';
                 const zip = voter['text_res_zip5'] || voter['text_mail_zip'] || '';
