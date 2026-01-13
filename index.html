@@ -58,11 +58,30 @@
                         header: true,
                         skipEmptyLines: true,
                         complete: (results) => {
-                            const salineVoters = results.data.map((row, index) => ({
-                                id: index,
-                                county: 'Saline',
-                                ...row
-                            }));
+                            const salineVoters = results.data.map((row, index) => {
+                                const age = this.calculateAge(row.date_of_birth);
+                                const fullAddress = this.buildAddress(
+                                    row.text_registrant_res_street_nbr,
+                                    row.text_street_name,
+                                    row.text_res_city,
+                                    row.cde_res_state,
+                                    row.text_res_zip
+                                );
+                                
+                                return {
+                                    id: index,
+                                    county: 'Saline',
+                                    firstName: row.text_name_first || '',
+                                    middleName: row.text_name_middle || '',
+                                    lastName: row.text_name_last || '',
+                                    fullAddress: fullAddress,
+                                    status: row.cde_registrant_status || 'N/A',
+                                    age: age,
+                                    precinct: row.precinct_text_name || 'N/A',
+                                    dob: row.date_of_birth || '',
+                                    ...row
+                                };
+                            });
                             this.voterData = [...this.voterData.filter(v => v.county !== 'Saline'), ...salineVoters];
                             this.updateStats();
                             this.applyFilters();
@@ -87,11 +106,30 @@
                         header: true,
                         skipEmptyLines: true,
                         complete: (results) => {
-                            const garlandVoters = results.data.map((row, index) => ({
-                                id: 10000 + index,
-                                county: 'Garland',
-                                ...row
-                            }));
+                            const garlandVoters = results.data.map((row, index) => {
+                                const age = this.calculateAge(row.date_of_birth);
+                                const fullAddress = this.buildAddress(
+                                    row.text_res_address_nbr,
+                                    row.text_street_name,
+                                    row.text_mail_city,
+                                    row.cde_mail_state,
+                                    row.text_mail_zip
+                                );
+                                
+                                return {
+                                    id: 10000 + index,
+                                    county: 'Garland',
+                                    firstName: row.text_name_first || '',
+                                    middleName: row.text_name_middle || '',
+                                    lastName: row.text_name_last || '',
+                                    fullAddress: fullAddress,
+                                    status: 'N/A',
+                                    age: age,
+                                    precinct: row.precinct_text_name || 'N/A',
+                                    dob: row.date_of_birth || '',
+                                    ...row
+                                };
+                            });
                             this.voterData = [...this.voterData.filter(v => v.county !== 'Garland'), ...garlandVoters];
                             this.updateStats();
                             this.applyFilters();
@@ -103,6 +141,33 @@
                 } catch (error) {
                     console.error('Error loading Garland Google Sheet:', error);
                 }
+            },
+
+            calculateAge(dob) {
+                if (!dob) return 'N/A';
+                try {
+                    const birthDate = new Date(dob);
+                    const today = new Date();
+                    let age = today.getFullYear() - birthDate.getFullYear();
+                    const monthDiff = today.getMonth() - birthDate.getMonth();
+                    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+                        age--;
+                    }
+                    return age > 0 && age < 120 ? age : 'N/A';
+                } catch (e) {
+                    return 'N/A';
+                }
+            },
+
+            buildAddress(streetNbr, streetName, city, state, zip) {
+                const parts = [];
+                if (streetNbr) parts.push(streetNbr);
+                if (streetName) parts.push(streetName);
+                
+                const streetAddress = parts.join(' ');
+                const cityStateZip = [city, state, zip].filter(Boolean).join(', ');
+                
+                return [streetAddress, cityStateZip].filter(Boolean).join(', ') || 'N/A';
             },
 
             updateStats() {
@@ -453,37 +518,39 @@
             },
 
             getTableHTML() {
-                const headers = this.viewMode === 'voters' && this.voterData.length > 0 
-                    ? Object.keys(this.voterData[0]).filter(key => !['id', 'county'].includes(key)).slice(0, 7)
-                    : this.parentData.length > 0 
-                    ? Object.keys(this.parentData[0]).filter(key => !['id', 'isRegistered', 'matchedVoter'].includes(key)).slice(0, 7)
-                    : [];
-
                 return `
                     <table class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gray-50">
                             <tr>
-                                ${this.viewMode === 'voters' ? '<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">County</th>' : '<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>'}
-                                ${headers.map(h => `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">${h.replace(/_/g, ' ')}</th>`).join('')}
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">County</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">First Name</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Middle Name</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Name</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Address</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Age</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Precinct</th>
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200">
                             ${this.filteredData.slice(0, 100).map(item => `
                                 <tr class="hover:bg-gray-50">
-                                    ${this.viewMode === 'voters' ? `
-                                        <td class="px-6 py-4 whitespace-nowrap">
-                                            <span class="px-2 py-1 text-xs font-semibold rounded ${item.county === 'Saline' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'}">
-                                                ${item.county}
-                                            </span>
-                                        </td>
-                                    ` : `
-                                        <td class="px-6 py-4 whitespace-nowrap">
-                                            <span class="px-3 py-1 text-xs font-bold rounded ${item.isRegistered ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}">
-                                                ${item.isRegistered ? '✓ REGISTERED' : '✗ NOT REGISTERED'}
-                                            </span>
-                                        </td>
-                                    `}
-                                    ${headers.map(h => `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${item[h] || '-'}</td>`).join('')}
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="px-2 py-1 text-xs font-semibold rounded ${item.county === 'Saline' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'}">
+                                            ${item.county}
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${item.firstName || '-'}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${item.middleName || '-'}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${item.lastName || '-'}</td>
+                                    <td class="px-6 py-4 text-sm text-gray-900" style="max-width: 250px; white-space: normal;">${item.fullAddress || '-'}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                        <span class="px-2 py-1 text-xs font-medium rounded ${item.status === 'REG' ? 'bg-green-100 text-green-800' : item.status === 'N/A' ? 'bg-gray-100 text-gray-600' : 'bg-yellow-100 text-yellow-800'}">
+                                            ${item.status}
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${item.age}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${item.precinct || '-'}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
