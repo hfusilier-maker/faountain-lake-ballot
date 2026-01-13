@@ -285,68 +285,60 @@
                 const parentsToMatch = parents || this.parentData;
                 
                 this.parentData = parentsToMatch.map((parent, index) => {
-                    // Try different possible column names for parent data
-                    const parentLastName = this.normalizeString(
-                        parent['Last Name'] || parent['LastName'] || parent['Parent Last Name'] || 
-                        parent['last_name'] || parent['parent_last_name'] || ''
-                    );
-                    const parentFirstName = this.normalizeString(
-                        parent['First Name'] || parent['FirstName'] || parent['Parent First Name'] || 
-                        parent['first_name'] || parent['parent_first_name'] || ''
-                    );
-                    const parentAddress = this.normalizeString(
-                        parent['Address'] || parent['Street Address'] || parent['Physical Address'] || 
-                        parent['address'] || parent['street_address'] || ''
-                    );
-                    const parentCity = this.normalizeString(
-                        parent['City'] || parent['city'] || ''
-                    );
+                    // Get parent info
+                    const parentFirstName = parent['First Name'] || parent['first_name'] || '';
+                    const parentLastName = parent['Last Name'] || parent['last_name'] || '';
+                    const parentContactAddress = parent['Contact Address'] || parent['contact_address'] || '';
+                    const parentCityStateZip = parent['City-State-Zip'] || parent['city_state_zip'] || '';
+                    
+                    // Parse parent address
+                    const parentParsed = this.parseParentAddress(parentContactAddress, parentCityStateZip);
                     
                     let isRegistered = false;
                     let matchedVoter = null;
                     let matchMethod = '';
 
-                    // Search through ALL voters (both Saline and Garland)
+                    // PRIORITY 1: Address Matching (Street Number + Street Name + Zip)
                     for (const voter of this.voterData) {
-                        const voterLastName = this.normalizeString(voter.lastName || '');
-                        const voterFirstName = this.normalizeString(voter.firstName || '');
-                        const voterAddress = this.normalizeString(voter.fullAddress || '');
+                        const voterParsed = this.parseVoterAddress(voter);
                         
-                        // Match by Last Name + First Name + City/Address
-                        if (parentLastName && voterLastName && parentLastName === voterLastName) {
-                            if (parentFirstName && voterFirstName && parentFirstName === voterFirstName) {
-                                // Strong match: Last + First + Address contains city
-                                if (parentCity && voterAddress.includes(parentCity)) {
-                                    isRegistered = true;
-                                    matchedVoter = voter;
-                                    matchMethod = 'Name + City';
-                                    break;
-                                }
-                                // Weaker match: Just Last + First
-                                if (!isRegistered) {
-                                    isRegistered = true;
-                                    matchedVoter = voter;
-                                    matchMethod = 'Name Only';
-                                }
+                        if (this.addressesMatch(parentParsed, voterParsed)) {
+                            isRegistered = true;
+                            matchedVoter = voter;
+                            matchMethod = 'Address Match';
+                            break;
+                        }
+                    }
+                    
+                    // PRIORITY 2: Name + City Fallback (only if address didn't match)
+                    if (!isRegistered) {
+                        const parentLastNorm = this.normalizeString(parentLastName);
+                        const parentFirstNorm = this.normalizeString(parentFirstName);
+                        const parentCity = this.normalizeString(parentParsed.city);
+                        
+                        for (const voter of this.voterData) {
+                            const voterLastNorm = this.normalizeString(voter.lastName || '');
+                            const voterFirstNorm = this.normalizeString(voter.firstName || '');
+                            const voterCity = this.normalizeString(this.parseVoterAddress(voter).city);
+                            
+                            if (parentLastNorm && voterLastNorm && parentLastNorm === voterLastNorm &&
+                                parentFirstNorm && voterFirstNorm && parentFirstNorm === voterFirstNorm &&
+                                parentCity && voterCity && parentCity === voterCity) {
+                                isRegistered = true;
+                                matchedVoter = voter;
+                                matchMethod = 'Name + City Match';
+                                break;
                             }
                         }
                     }
 
-                    // Build full address for parent
-                    const parentFullAddress = this.buildAddress(
-                        parent['Street Number'] || parent['street_number'] || '',
-                        parent['Street Name'] || parent['street_name'] || parent['Address'] || '',
-                        parent['City'] || parent['city'] || '',
-                        parent['State'] || parent['state'] || '',
-                        parent['Zip'] || parent['zip'] || parent['Zip Code'] || ''
-                    );
-
                     return {
                         id: index,
-                        firstName: parent['First Name'] || parent['FirstName'] || parent['first_name'] || '',
-                        lastName: parent['Last Name'] || parent['LastName'] || parent['last_name'] || '',
-                        fullAddress: parentFullAddress,
-                        phone: parent['Phone'] || parent['phone'] || parent['Phone Number'] || '',
+                        firstName: parentFirstName,
+                        lastName: parentLastName,
+                        fullAddress: parentContactAddress,
+                        cityStateZip: parentCityStateZip,
+                        phone: parent['Contact Phone'] || parent['contact_phone'] || '',
                         email: parent['Email'] || parent['email'] || '',
                         studentName: parent['Student Name'] || parent['student_name'] || '',
                         isRegistered,
@@ -358,6 +350,66 @@
 
                 this.updateStats();
                 this.applyFilters();
+            },
+
+            parseParentAddress(contactAddress, cityStateZip) {
+                // Parse "5817 Highway 9" and "Benton, AR 72019"
+                const addressParts = (contactAddress || '').trim().split(/\s+/);
+                const streetNumber = addressParts[0] || '';
+                const streetName = addressParts.slice(1).join(' ').toLowerCase().trim();
+                
+                // Parse "Benton, AR 72019" or "Hot Springs, AR 71901"
+                const cityStateZipParts = (cityStateZip || '').split(',');
+                const city = (cityStateZipParts[0] || '').trim();
+                const stateZip = (cityStateZipParts[1] || '').trim().split(/\s+/);
+                const zip = (stateZip[1] || '').trim();
+                
+                return {
+                    streetNumber: this.normalizeString(streetNumber),
+                    streetName: this.normalizeString(streetName),
+                    city: city,
+                    zip: zip
+                };
+            },
+
+            parseVoterAddress(voter) {
+                // Handle both Saline and Garland county formats
+                const streetNumber = this.normalizeString(
+                    voter['text_res_address_nbr'] || 
+                    voter['text_registrant_res_street_nbr'] || 
+                    ''
+                );
+                const streetName = this.normalizeString(
+                    voter['text_street_name'] || ''
+                );
+                const streetType = this.normalizeString(
+                    voter['cde_street_type'] || 
+                    voter['cde_street_dir_suffix'] || 
+                    ''
+                );
+                
+                // Combine street name and type
+                const fullStreetName = [streetName, streetType].filter(Boolean).join('');
+                
+                const city = voter['text_res_city'] || voter['text_mail_city'] || '';
+                const zip = voter['text_res_zip5'] || voter['text_mail_zip'] || '';
+                
+                return {
+                    streetNumber: streetNumber,
+                    streetName: fullStreetName,
+                    city: city,
+                    zip: zip
+                };
+            },
+
+            addressesMatch(parent, voter) {
+                // Match if Street Number + Street Name + Zip all match
+                if (!parent.streetNumber || !parent.streetName || !parent.zip) return false;
+                if (!voter.streetNumber || !voter.streetName || !voter.zip) return false;
+                
+                return parent.streetNumber === voter.streetNumber &&
+                       parent.streetName === voter.streetName &&
+                       parent.zip === voter.zip;
             },
 
             applyFilters() {
@@ -603,7 +655,10 @@
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.firstName || '-'}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.lastName || '-'}</td>
-                                        <td class="px-6 py-4 text-sm text-gray-900" style="max-width: 250px; white-space: normal;">${parent.fullAddress || '-'}</td>
+                                        <td class="px-6 py-4 text-sm text-gray-900" style="max-width: 250px; white-space: normal;">
+                                            ${parent.fullAddress || '-'}
+                                            ${parent.cityStateZip ? '<br><span class="text-gray-600 text-xs">' + parent.cityStateZip + '</span>' : ''}
+                                        </td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.phone || '-'}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.email || '-'}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.studentName || '-'}</td>
