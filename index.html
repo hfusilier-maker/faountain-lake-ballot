@@ -664,10 +664,10 @@
                     app.innerHTML = `
                         <div class="flex items-center justify-center h-screen bg-gray-50">
                             <div class="text-center">
-                                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-900 mx-auto mb-4"></div>
                                 <p class="text-gray-600 mb-2">${this.loadingMessage}</p>
                                 <div class="w-64 h-2 bg-gray-200 rounded-full mx-auto overflow-hidden">
-                                    <div class="h-full bg-blue-600 transition-all duration-300" style="width: ${this.loadingProgress}%"></div>
+                                    <div class="h-full bg-purple-900 transition-all duration-300" style="width: ${this.loadingProgress}%"></div>
                                 </div>
                             </div>
                         </div>
@@ -682,9 +682,21 @@
                     : [];
 
                 app.innerHTML = `
-                    <div class="bg-blue-900 text-white p-6 shadow-lg">
-                        <h1 class="text-3xl font-bold mb-2">Fountain Lake School District</h1>
-                        <p class="text-blue-200">Voter Database</p>
+                    <div class="bg-gradient-to-r from-purple-900 to-gray-800 text-white shadow-lg">
+                        <div class="max-w-7xl mx-auto px-6 py-8">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h1 class="text-4xl font-bold tracking-tight">Fountain Lake School District</h1>
+                                    <p class="text-purple-200 text-lg mt-2">Voter Database & Registration Tracker</p>
+                                </div>
+                                <div class="hidden md:block">
+                                    <div class="bg-white bg-opacity-10 rounded-lg px-6 py-3 backdrop-blur-sm">
+                                        <p class="text-sm text-purple-200">Campaign Dashboard</p>
+                                        <p class="text-2xl font-bold">${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="max-w-7xl mx-auto px-6 py-6">
@@ -720,7 +732,7 @@
 
                         <!-- Registration Rate Banner -->
                         ${this.stats.totalParents > 0 ? `
-                        <div class="bg-gradient-to-r from-blue-600 to-blue-700 rounded-lg shadow-lg p-6 mb-6 text-white">
+                        <div class="bg-gradient-to-r from-purple-900 to-purple-700 rounded-lg shadow-lg p-6 mb-6 text-white">
                             <div class="flex items-center justify-between">
                                 <div>
                                     <p class="text-sm opacity-90 mb-1">Parent Registration Rate</p>
@@ -740,10 +752,10 @@
                         <!-- View Toggle -->
                         <div class="bg-white rounded-lg shadow p-4 mb-6">
                             <div class="flex gap-2">
-                                <button onclick="App.setViewMode('voters')" class="flex-1 px-6 py-3 rounded-lg font-semibold transition ${this.viewMode === 'voters' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}">
+                                <button onclick="App.setViewMode('voters')" class="flex-1 px-6 py-3 rounded-lg font-semibold transition ${this.viewMode === 'voters' ? 'bg-purple-900 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}">
                                     Voter Database (${this.stats.totalVoters.toLocaleString()})
                                 </button>
-                                <button onclick="App.setViewMode('parents')" class="flex-1 px-6 py-3 rounded-lg font-semibold transition ${this.viewMode === 'parents' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}">
+                                <button onclick="App.setViewMode('parents')" class="flex-1 px-6 py-3 rounded-lg font-semibold transition ${this.viewMode === 'parents' ? 'bg-purple-900 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}">
                                     Parent Database (${this.stats.totalParents.toLocaleString()})
                                 </button>
                             </div>
@@ -752,14 +764,14 @@
                         <!-- Upload -->
                         <div class="bg-white rounded-lg shadow p-6 mb-6">
                             <h2 class="text-xl font-bold mb-4">Data Sources</h2>
-                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                                <p class="text-sm text-blue-800"><strong>✓ All data loads automatically</strong> from Google Sheets</p>
-                                <ul class="text-xs text-blue-600 mt-2 ml-4 list-disc">
+                            <div class="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                                <p class="text-sm text-purple-900"><strong>✓ All data loads automatically</strong> from Google Sheets</p>
+                                <ul class="text-xs text-purple-800 mt-2 ml-4 list-disc">
                                     <li>Saline County Voters</li>
                                     <li>Garland County Voters</li>
                                     <li>Parent Database (matched against both counties)</li>
                                 </ul>
-                                <p class="text-xs text-blue-600 mt-2">Data updates when you refresh the page</p>
+                                <p class="text-xs text-purple-800 mt-2">Data updates when you refresh the page</p>
                             </div>
                         </div>
 
@@ -790,7 +802,7 @@
                                     </div>
                                 `}
                                 <div class="flex items-end">
-                                    <button onclick="App.exportToExcel()" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Export to Excel</button>
+                                    <button onclick="App.exportToExcel()" class="w-full px-4 py-2 bg-purple-900 text-white rounded-lg hover:bg-purple-800 transition">Export to Excel</button>
                                 </div>
                             </div>
                             <div class="mt-4" id="stats-container">
