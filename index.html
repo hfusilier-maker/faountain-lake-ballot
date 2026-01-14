@@ -117,8 +117,8 @@
             // Initialize the map
             initMap() {
                 if (!this.map) {
-                    // Center on Hot Springs, AR
-                    const center = { lat: 34.5037, lng: -93.0552 };
+                    // Center on Fountain Lake School District: 4207 Park Avenue, Hot Springs, AR 71901
+                    const center = { lat: 34.4836, lng: -93.0918 };
                     
                     this.map = new google.maps.Map(document.getElementById('map'), {
                         zoom: 12,
@@ -1046,10 +1046,18 @@
                 this.applyFilters();
                 this.render();
                 
-                // Initialize map if switching to map view
+                // Initialize or refresh map when switching to map view
                 if (mode === 'map') {
                     setTimeout(() => {
-                        this.initMap();
+                        if (this.map) {
+                            // Trigger resize to fix display issues
+                            google.maps.event.trigger(this.map, 'resize');
+                            // Recenter on Fountain Lake School District
+                            const center = { lat: 34.4836, lng: -93.0918 };
+                            this.map.setCenter(center);
+                        } else {
+                            this.initMap();
+                        }
                     }, 100);
                 }
             },
