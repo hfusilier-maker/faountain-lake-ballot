@@ -880,40 +880,61 @@
                         matchMethod = 'Manual Override';
                         matchConfidence = 100;
                     } else {
-                        // PRIORITY 1: Address-based matching with fuzzy logic
+                        // PRIORITY 1: Address-based matching with fuzzy logic + name verification
                         if (parentParsed.streetNumber) {
                             const lookupKey = parentParsed.streetNumber;
                             const candidates = this.voterIndex[lookupKey] || [];
                             
                             let bestMatch = null;
-                            let bestSimilarity = 0;
+                            let bestAddressSimilarity = 0;
+                            let bestNameSimilarity = 0;
+                            let bestCombinedScore = 0;
+                            
+                            const parentLastNorm = parentLastName.toLowerCase().trim();
+                            const parentFirstNorm = parentFirstName.toLowerCase().trim();
                             
                             for (const candidate of candidates) {
                                 // Calculate street name similarity
-                                const similarity = this.stringSimilarity(
+                                const addressSimilarity = this.stringSimilarity(
                                     parentParsed.streetName, 
                                     candidate.parsed.streetName
                                 );
                                 
-                                if (similarity > bestSimilarity) {
-                                    bestSimilarity = similarity;
+                                // Calculate name similarity
+                                const voterFirstNorm = (candidate.voter.firstName || '').toLowerCase().trim();
+                                const voterLastNorm = (candidate.voter.lastName || '').toLowerCase().trim();
+                                
+                                const firstNameSimilarity = this.stringSimilarity(parentFirstNorm, voterFirstNorm);
+                                const lastNameSimilarity = this.stringSimilarity(parentLastNorm, voterLastNorm);
+                                
+                                // Combined score: address is most important, but name matters too
+                                // Address: 60% weight, Last name: 30%, First name: 10%
+                                const combinedScore = (addressSimilarity * 0.6) + (lastNameSimilarity * 0.3) + (firstNameSimilarity * 0.1);
+                                
+                                // Must have reasonably similar last name (75%+) to consider it the same household
+                                if (lastNameSimilarity >= 75 && combinedScore > bestCombinedScore) {
+                                    bestCombinedScore = combinedScore;
+                                    bestAddressSimilarity = addressSimilarity;
+                                    bestNameSimilarity = (lastNameSimilarity + firstNameSimilarity) / 2;
                                     bestMatch = candidate;
                                 }
                             }
                             
-                            // HIGH CONFIDENCE: 95%+ similarity
-                            if (bestSimilarity >= 95) {
+                            // HIGH CONFIDENCE: Address 85%+ AND Last name 75%+
+                            if (bestAddressSimilarity >= 85 && bestMatch) {
                                 isRegistered = true;
                                 matchedVoter = bestMatch.voter;
-                                matchMethod = bestSimilarity === 100 ? 'Address Match (Exact)' : `Address Match (${bestSimilarity}% similar)`;
-                                matchConfidence = bestSimilarity;
-                            }
-                            // MEDIUM CONFIDENCE: 85-94% similarity
-                            else if (bestSimilarity >= 85) {
-                                isRegistered = true;
-                                matchedVoter = bestMatch.voter;
-                                matchMethod = `Address Match (${bestSimilarity}% fuzzy)`;
-                                matchConfidence = bestSimilarity;
+                                
+                                if (bestAddressSimilarity === 100 && bestNameSimilarity === 100) {
+                                    matchMethod = 'Address + Name Match (Exact)';
+                                    matchConfidence = 100;
+                                } else if (bestAddressSimilarity >= 95 && bestNameSimilarity >= 85) {
+                                    matchMethod = `Address + Name Match (${Math.round(bestCombinedScore)}% confidence)`;
+                                    matchConfidence = Math.round(bestCombinedScore);
+                                } else {
+                                    matchMethod = `Address + Name Match (${Math.round(bestCombinedScore)}% fuzzy)`;
+                                    matchConfidence = Math.round(bestCombinedScore);
+                                }
                             }
                         }
                         
