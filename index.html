@@ -775,6 +775,29 @@
                             <div class="mt-4" id="stats-container">
                                 <p class="text-sm text-gray-600">Showing ${this.filteredData.length.toLocaleString()} of ${(this.viewMode === 'voters' ? this.voterData.length : this.parentData.length).toLocaleString()} records</p>
                             </div>
+                            ${this.viewMode === 'parents' ? `
+                            <div class="mt-4 bg-gray-50 border border-gray-200 rounded-lg p-4">
+                                <p class="text-sm font-semibold text-gray-700 mb-2">Registration Status Legend:</p>
+                                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-2xl text-green-600">✓</span>
+                                        <span class="text-gray-700"><strong>Green Check:</strong> Registered voter (address match)</span>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-2xl text-yellow-600">✓</span>
+                                        <span class="text-gray-700"><strong>Yellow Check:</strong> Registered voter (fuzzy/name match)</span>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-2xl text-red-600">✗</span>
+                                        <span class="text-gray-700"><strong>Red X:</strong> Not registered</span>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-lg">⚠️</span>
+                                        <span class="text-gray-700"><strong>Warning:</strong> Fuzzy match (minor differences)</span>
+                                    </div>
+                                </div>
+                            </div>
+                            ` : ''}
                         </div>
 
                         <!-- Data Table -->
@@ -828,8 +851,33 @@
             },
 
             getStatsHTML() {
+                const legend = this.viewMode === 'parents' ? `
+                    <div class="mt-3 bg-gray-50 border border-gray-200 rounded-lg p-4">
+                        <p class="text-sm font-semibold text-gray-700 mb-2">Registration Status Legend:</p>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                            <div class="flex items-center gap-2">
+                                <span class="text-2xl text-green-600">✓</span>
+                                <span class="text-gray-700"><strong>Green Check:</strong> Registered voter (address match)</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-2xl text-yellow-600">✓</span>
+                                <span class="text-gray-700"><strong>Yellow Check:</strong> Registered voter (fuzzy/name match)</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-2xl text-red-600">✗</span>
+                                <span class="text-gray-700"><strong>Red X:</strong> Not registered</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-lg">⚠️</span>
+                                <span class="text-gray-700"><strong>Warning:</strong> Fuzzy match (minor differences)</span>
+                            </div>
+                        </div>
+                    </div>
+                ` : '';
+                
                 return `
                     <p class="text-sm text-gray-600">Showing ${this.filteredData.length.toLocaleString()} of ${(this.viewMode === 'voters' ? this.voterData.length : this.parentData.length).toLocaleString()} records</p>
+                    ${legend}
                 `;
             },
 
