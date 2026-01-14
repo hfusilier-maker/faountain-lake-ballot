@@ -262,7 +262,17 @@
             toggleHeatmap() {
                 this.showHeatmap = !this.showHeatmap;
                 this.updateHeatmap();
-                this.render();
+                // Don't call render() - just update the button appearance
+                const button = document.querySelector('[onclick="App.toggleHeatmap()"]');
+                if (button) {
+                    if (this.showHeatmap) {
+                        button.className = 'w-full px-4 py-2 bg-purple-900 text-white rounded-lg hover:bg-purple-800 hover:text-white transition';
+                        button.textContent = '🔥 Hide Heatmap';
+                    } else {
+                        button.className = 'w-full px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-purple-800 hover:text-white transition';
+                        button.textContent = '🔥 Show Heatmap';
+                    }
+                }
             },
 
             setMapFilter(filter) {
@@ -270,7 +280,7 @@
                 if (this.viewMode === 'map') {
                     this.updateMapMarkers();
                 }
-                this.render();
+                // Don't re-render the whole page, map will update via updateMapMarkers
             },
 
             async init() {
