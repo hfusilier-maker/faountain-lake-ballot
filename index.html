@@ -414,24 +414,24 @@
                             }
                         }
                         
-                        // PRIORITY 2: Name + City Fallback (only if address didn't match)
+                        // PRIORITY 2: Name + Zip Fallback (removed city requirement)
                         if (!isRegistered) {
                             const parentLastNorm = this.normalizeString(parentLastName);
                             const parentFirstNorm = this.normalizeString(parentFirstName);
-                            const parentCity = this.normalizeString(parentParsed.city);
+                            const parentZip = parentParsed.zip;
                             
                             // Only search through voters, much faster than nested loop
                             for (const voter of this.voterData) {
                                 const voterLastNorm = this.normalizeString(voter.lastName || '');
                                 const voterFirstNorm = this.normalizeString(voter.firstName || '');
-                                const voterCity = this.normalizeString(this.parseVoterAddress(voter).city);
+                                const voterZip = this.parseVoterAddress(voter).zip;
                                 
                                 if (parentLastNorm && voterLastNorm && parentLastNorm === voterLastNorm &&
                                     parentFirstNorm && voterFirstNorm && parentFirstNorm === voterFirstNorm &&
-                                    parentCity && voterCity && parentCity === voterCity) {
+                                    parentZip && voterZip && parentZip === voterZip) {
                                     isRegistered = true;
                                     matchedVoter = voter;
-                                    matchMethod = 'Name + City (Addr Mismatch)';
+                                    matchMethod = 'Name + Zip (Addr Mismatch)';
                                     break;
                                 }
                             }
