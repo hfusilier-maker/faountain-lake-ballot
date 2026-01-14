@@ -24,6 +24,7 @@
         
         const App = {
             voterData: [],
+            voterIndex: {}, // NEW: Fast lookup index
             parentData: [],
             filteredData: [],
             searchTerm: '',
@@ -110,6 +111,7 @@
                                 };
                             });
                             this.voterData = [...this.voterData.filter(v => v.county !== 'Saline'), ...salineVoters];
+                            this.buildVoterIndex();
                             this.updateStats();
                             this.applyFilters();
                         },
@@ -119,6 +121,25 @@
                     });
                 } catch (error) {
                     console.error('Error loading Saline Google Sheet:', error);
+                }
+            },
+
+            buildVoterIndex() {
+                // Build fast lookup index: key = "streetNumber_zip", value = array of matching voters
+                this.voterIndex = {};
+                
+                for (const voter of this.voterData) {
+                    const parsed = this.parseVoterAddress(voter);
+                    if (parsed.streetNumber && parsed.zip) {
+                        const key = `${parsed.streetNumber}_${parsed.zip}`;
+                        if (!this.voterIndex[key]) {
+                            this.voterIndex[key] = [];
+                        }
+                        this.voterIndex[key].push({
+                            voter: voter,
+                            parsed: parsed
+                        });
+                    }
                 }
             },
 
@@ -158,6 +179,7 @@
                                 };
                             });
                             this.voterData = [...this.voterData.filter(v => v.county !== 'Garland'), ...garlandVoters];
+                            this.buildVoterIndex();
                             this.updateStats();
                             this.applyFilters();
                         },
@@ -359,7 +381,7 @@
                     const contactName = parent['Contact Name'] || '';
                     const nameParts = contactName.split(',').map(s => s.trim());
                     const parentLastName = nameParts[0] || '';
-                    const parentFirstName = nameParts[1] ? nameParts[1].split(' ')[0] : ''; // Get just first name, ignore middle
+                    const parentFirstName = nameParts[1] ? nameParts[1].split(' ')[0] : '';
                     
                     const parentContactAddress = parent['Contact Address'] || '';
                     const parentCityStateZip = parent['City-State-Zip'] || '';
@@ -377,15 +399,18 @@
                         isRegistered = true;
                         matchMethod = 'Manual Override';
                     } else {
-                        // PRIORITY 1: Address Matching (Street Number + Street Name + Zip)
-                        for (const voter of this.voterData) {
-                            const voterParsed = this.parseVoterAddress(voter);
+                        // PRIORITY 1: Fast address lookup using index
+                        if (parentParsed.streetNumber && parentParsed.zip) {
+                            const lookupKey = `${parentParsed.streetNumber}_${parentParsed.zip}`;
+                            const candidates = this.voterIndex[lookupKey] || [];
                             
-                            if (this.addressesMatch(parentParsed, voterParsed)) {
-                                isRegistered = true;
-                                matchedVoter = voter;
-                                matchMethod = 'Address Match';
-                                break;
+                            for (const candidate of candidates) {
+                                if (parentParsed.streetName === candidate.parsed.streetName) {
+                                    isRegistered = true;
+                                    matchedVoter = candidate.voter;
+                                    matchMethod = 'Address Match';
+                                    break;
+                                }
                             }
                         }
                         
@@ -395,6 +420,7 @@
                             const parentFirstNorm = this.normalizeString(parentFirstName);
                             const parentCity = this.normalizeString(parentParsed.city);
                             
+                            // Only search through voters, much faster than nested loop
                             for (const voter of this.voterData) {
                                 const voterLastNorm = this.normalizeString(voter.lastName || '');
                                 const voterFirstNorm = this.normalizeString(voter.firstName || '');
