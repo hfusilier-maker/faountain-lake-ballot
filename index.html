@@ -273,12 +273,33 @@
                 
                 await this.loadParentData();
                 
-                this.loadingProgress = 90;
+                this.loadingProgress = 80;
+                this.loadingMessage = 'Building address index...';
+                this.render();
+                
+                // Small delay to show progress
+                await new Promise(resolve => setTimeout(resolve, 300));
+                
+                this.loadingProgress = 85;
                 this.loadingMessage = 'Matching parents to voters...';
                 this.render();
                 
+                // Small delay to show progress
+                await new Promise(resolve => setTimeout(resolve, 300));
+                
+                this.loadingProgress = 92;
+                this.loadingMessage = 'Calculating registration rates...';
+                this.render();
+                
+                // Small delay to show progress
+                await new Promise(resolve => setTimeout(resolve, 300));
+                
+                this.loadingProgress = 98;
+                this.loadingMessage = 'Finalizing data...';
+                this.render();
+                
                 // Small delay to show final progress
-                await new Promise(resolve => setTimeout(resolve, 500));
+                await new Promise(resolve => setTimeout(resolve, 300));
                 
                 this.loadingProgress = 100;
                 this.loadingMessage = 'Complete!';
