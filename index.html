@@ -118,14 +118,33 @@
             initMap() {
                 if (!this.map) {
                     // Center on Fountain Lake School District: 4207 Park Avenue, Hot Springs, AR 71901
-                    const center = { lat: 34.4836, lng: -93.0918 };
+                    const center = { lat: 34.483679, lng: -93.091827 };
                     
                     this.map = new google.maps.Map(document.getElementById('map'), {
-                        zoom: 12,
+                        zoom: 13,
                         center: center,
                         mapTypeControl: true,
                         streetViewControl: false,
                         fullscreenControl: true,
+                    });
+                    
+                    // Add a marker for the school
+                    new google.maps.Marker({
+                        position: center,
+                        map: this.map,
+                        title: 'Fountain Lake School District',
+                        icon: {
+                            path: google.maps.SymbolPath.CIRCLE,
+                            scale: 10,
+                            fillColor: '#7c3aed',
+                            fillOpacity: 1,
+                            strokeColor: '#ffffff',
+                            strokeWeight: 3,
+                        },
+                        label: {
+                            text: '🏫',
+                            fontSize: '20px',
+                        }
                     });
                 }
                 
@@ -1073,9 +1092,10 @@
                         if (this.map) {
                             // Trigger resize to fix display issues
                             google.maps.event.trigger(this.map, 'resize');
-                            // Recenter on Fountain Lake School District
-                            const center = { lat: 34.4836, lng: -93.0918 };
+                            // Recenter on Fountain Lake School District: 4207 Park Avenue
+                            const center = { lat: 34.483679, lng: -93.091827 };
                             this.map.setCenter(center);
+                            this.map.setZoom(13);
                         } else {
                             this.initMap();
                         }
