@@ -1308,8 +1308,6 @@
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">First Name</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Name</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Address</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
                                 </tr>
                             </thead>
@@ -1348,13 +1346,11 @@
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.firstName || '-'}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.lastName || '-'}</td>
-                                        <td class="px-6 py-4 text-sm text-gray-900" style="max-width: 250px; white-space: normal;">
+                                        <td class="px-6 py-4 text-sm text-gray-900" style="max-width: 300px; white-space: normal;">
                                             ${parent.fullAddress || '-'}
                                             ${parent.cityStateZip ? '<br><span class="text-gray-600 text-xs">' + parent.cityStateZip + '</span>' : ''}
                                             ${parent.matchMethod ? '<br><span class="text-gray-500 text-xs italic">' + parent.matchMethod + '</span>' : ''}
                                         </td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent['Contact Phone'] || parent.phone || '-'}</td>
-                                        <td class="px-6 py-4 text-sm text-gray-900" style="max-width: 200px; word-break: break-word;">${parent['Contact Email'] || parent.email || '-'}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm">
                                             <button onclick='App.showContactDialog(${JSON.stringify(parent).replace(/'/g, "\\'")})'  class="px-3 py-1 bg-purple-900 text-white text-xs rounded hover:bg-purple-800 transition">
                                                 Update
