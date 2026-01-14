@@ -360,7 +360,10 @@
                     'parkway': 'pkwy',
                     'pkwy': 'pkwy',
                     'way': 'way',
-                    'loop': 'loop'
+                    'loop': 'loop',
+                    'apartment': 'apt',
+                    'apt': 'apt',
+                    'unit': 'unit'
                 };
                 
                 // Replace abbreviations
@@ -459,8 +462,12 @@
             },
 
             parseParentAddress(contactAddress, cityStateZip) {
-                // Parse "5817 Highway 9" or "5817 Hwy 9" and "Benton, AR 72019"
-                const addressParts = (contactAddress || '').trim().split(/\s+/);
+                // Parse "5817 Highway 9" or "207 Vaughn Road" and "Benton, AR 72019"
+                // Strip apartment/unit numbers (Apt B, Unit 4, #205, etc)
+                let cleanAddress = (contactAddress || '').trim()
+                    .replace(/,?\s*(apt|apartment|unit|#|ste|suite)\s*[a-z0-9-]*/gi, '');
+                
+                const addressParts = cleanAddress.split(/\s+/);
                 const streetNumber = addressParts[0] || '';
                 const streetName = addressParts.slice(1).join(' ');
                 
