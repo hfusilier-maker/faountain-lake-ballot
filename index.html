@@ -492,6 +492,8 @@
                     voter['text_registrant_res_street_nbr'] || 
                     ''
                 );
+                
+                // Get street name and type from the actual columns
                 const streetName = voter['text_street_name'] || '';
                 const streetType = voter['cde_street_type'] || 
                     voter['cde_street_dir_suffix'] || '';
@@ -500,7 +502,7 @@
                 const fullStreetName = this.normalizeAddress([streetName, streetType].filter(Boolean).join(' '));
                 
                 const city = voter['text_res_city'] || voter['text_mail_city'] || '';
-                const zip = voter['text_res_zip5'] || voter['text_mail_zip'] || '';
+                const zip = voter['text_res_zip5'] || voter['text_mail_zip'] || voter['text_res_zip'] || '';
                 
                 return {
                     streetNumber: streetNumber,
