@@ -1089,16 +1089,10 @@
                 // Initialize or refresh map when switching to map view
                 if (mode === 'map') {
                     setTimeout(() => {
-                        if (this.map) {
-                            // Trigger resize to fix display issues
-                            google.maps.event.trigger(this.map, 'resize');
-                            // Recenter on Fountain Lake School District: 4207 Park Avenue
-                            const center = { lat: 34.5740735, lng: -92.9866302 };
-                            this.map.setCenter(center);
-                            this.map.setZoom(13);
-                        } else {
-                            this.initMap();
-                        }
+                        // Always reinitialize the map when switching to map view
+                        // because the DOM container was destroyed and recreated
+                        this.map = null; // Force recreation
+                        this.initMap();
                     }, 100);
                 }
             },
