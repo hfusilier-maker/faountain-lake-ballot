@@ -455,6 +455,17 @@
                 const households = {};
                 
                 this.parentData.forEach(parent => {
+                    // Skip if address is incomplete or missing
+                    if (!parent.fullAddress || parent.fullAddress.trim() === '' || parent.fullAddress === '-') {
+                        return; // Skip this parent
+                    }
+                    
+                    // Skip if only has city/state/zip but no street address
+                    const addressParts = parent.fullAddress.trim().split(' ');
+                    if (addressParts.length < 2) {
+                        return; // Need at least street number + street name
+                    }
+                    
                     const address = `${parent.fullAddress}, ${parent.cityStateZip}`.toLowerCase().trim();
                     
                     if (!households[address]) {
@@ -480,6 +491,7 @@
                 
                 // Convert to array and sort by priority (mixed households first)
                 return Object.values(households)
+                    .filter(h => h.totalCount > 0) // Only households with valid parents
                     .sort((a, b) => {
                         // Priority: households with both registered and unregistered
                         const aMixed = a.registeredCount > 0 && a.unregisteredCount > 0 ? 1 : 0;
