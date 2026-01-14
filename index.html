@@ -23,6 +23,9 @@
         const GARLAND_SHEET_NAME = 'Sheet1';
         const PARENT_SHEET_ID = '1CRJV-1LfOhIH_nlTMrfe7uaa9VDv4v2UhQG-wrWQMV0';
         const PARENT_SHEET_NAME = 'Sheet1';
+        const CONTACT_LOG_SHEET_ID = '19-KmsO0HfebKgD8yZIxNKIF5_WvxZOPwishxiFRrF64';
+        const CONTACT_LOG_SHEET_NAME = 'Contact_Log';
+        const GOOGLE_API_KEY = 'AIzaSyD3MsI4xd2u8ZfvIjRZWsX5bzKvxVzUFuo';
         
         const App = {
             voterData: [],
@@ -42,6 +45,7 @@
             heatmap: null,
             showHeatmap: false,
             mapFilter: 'all', // 'all', 'registered', 'unregistered'
+            contactStatuses: {}, // Store contact status for each parent
             stats: {
                 totalVoters: 0,
                 salineVoters: 0,
@@ -275,6 +279,119 @@
                 }
             },
 
+            // Load contact statuses from Google Sheet
+            async loadContactLog() {
+                try {
+                    const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONTACT_LOG_SHEET_ID}/values/${CONTACT_LOG_SHEET_NAME}?key=${GOOGLE_API_KEY}`;
+                    const response = await fetch(url);
+                    const data = await response.json();
+                    
+                    if (data.values && data.values.length > 1) {
+                        // Skip header row
+                        for (let i = 1; i < data.values.length; i++) {
+                            const row = data.values[i];
+                            const parentId = row[0];
+                            if (parentId) {
+                                this.contactStatuses[parentId] = {
+                                    status: row[5] || 'Not Contacted',
+                                    notes: row[6] || '',
+                                    contactedBy: row[7] || '',
+                                    contactDate: row[8] || '',
+                                    lastUpdated: row[9] || ''
+                                };
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error loading contact log:', error);
+                }
+            },
+
+            // Log contact to Google Sheet
+            async logContact(parent, status, notes = '') {
+                const contactedBy = prompt('Your name (for tracking):') || 'Unknown';
+                const now = new Date().toISOString();
+                const parentId = `${parent.lastName}_${parent.firstName}_${parent.fullAddress}`.replace(/[^a-zA-Z0-9]/g, '_');
+                
+                // Update local cache
+                this.contactStatuses[parentId] = {
+                    status: status,
+                    notes: notes,
+                    contactedBy: contactedBy,
+                    contactDate: now,
+                    lastUpdated: now
+                };
+                
+                // Prepare row data
+                const rowData = [
+                    parentId,
+                    `${parent.firstName} ${parent.lastName}`,
+                    parent.fullAddress,
+                    parent.phone || '',
+                    parent.email || '',
+                    status,
+                    notes,
+                    contactedBy,
+                    now,
+                    now
+                ];
+                
+                try {
+                    // Append to Google Sheet
+                    const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONTACT_LOG_SHEET_ID}/values/${CONTACT_LOG_SHEET_NAME}:append?valueInputOption=RAW&key=${GOOGLE_API_KEY}`;
+                    
+                    await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            values: [rowData]
+                        })
+                    });
+                    
+                    alert(`✓ Marked ${parent.firstName} ${parent.lastName} as "${status}"`);
+                    this.render();
+                } catch (error) {
+                    console.error('Error logging contact:', error);
+                    alert('Error saving to Google Sheet. Please try again.');
+                }
+            },
+
+            // Show contact dialog
+            showContactDialog(parent) {
+                const parentId = `${parent.lastName}_${parent.firstName}_${parent.fullAddress}`.replace(/[^a-zA-Z0-9]/g, '_');
+                const currentStatus = this.contactStatuses[parentId] || {};
+                
+                const dialog = `
+                    <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 10000; display: flex; align-items: center; justify-content: center;" onclick="this.remove()">
+                        <div style="background: white; padding: 24px; border-radius: 12px; max-width: 500px; width: 90%;" onclick="event.stopPropagation()">
+                            <h3 style="font-size: 20px; font-weight: bold; margin-bottom: 16px;">Update Contact Status</h3>
+                            <p style="margin-bottom: 16px;"><strong>${parent.firstName} ${parent.lastName}</strong><br>${parent.fullAddress}</p>
+                            
+                            ${currentStatus.status ? `
+                                <div style="background: #f3f4f6; padding: 12px; border-radius: 8px; margin-bottom: 16px;">
+                                    <p style="font-size: 14px; margin-bottom: 4px;"><strong>Current Status:</strong> ${currentStatus.status}</p>
+                                    ${currentStatus.contactedBy ? `<p style="font-size: 12px; color: #6b7280;">By ${currentStatus.contactedBy} on ${new Date(currentStatus.contactDate).toLocaleDateString()}</p>` : ''}
+                                    ${currentStatus.notes ? `<p style="font-size: 12px; color: #6b7280; margin-top: 8px;"><em>"${currentStatus.notes}"</em></p>` : ''}
+                                </div>
+                            ` : ''}
+                            
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px;">
+                                <button onclick="App.logContact(${JSON.stringify(parent).replace(/"/g, '&quot;')}, 'Contacted'); this.closest('div[style*=fixed]').remove();" style="padding: 12px; background: #3b82f6; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">📞 Contacted</button>
+                                <button onclick="App.logContact(${JSON.stringify(parent).replace(/"/g, '&quot;')}, 'Scheduled'); this.closest('div[style*=fixed]').remove();" style="padding: 12px; background: #8b5cf6; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">📅 Scheduled</button>
+                                <button onclick="App.logContact(${JSON.stringify(parent).replace(/"/g, '&quot;')}, 'Registered'); this.closest('div[style*=fixed]').remove();" style="padding: 12px; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">✓ Registered</button>
+                                <button onclick="App.logContact(${JSON.stringify(parent).replace(/"/g, '&quot;')}, 'Declined'); this.closest('div[style*=fixed]').remove();" style="padding: 12px; background: #ef4444; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">✗ Declined</button>
+                            </div>
+                            
+                            <button onclick="this.closest('div[style*=fixed]').remove()" style="width: 100%; padding: 12px; background: #e5e7eb; color: #374151; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">Cancel</button>
+                        </div>
+                    </div>
+                `;
+                
+                document.body.insertAdjacentHTML('beforeend', dialog);
+            },
+
             setMapFilter(filter) {
                 this.mapFilter = filter;
                 if (this.viewMode === 'map') {
@@ -301,6 +418,12 @@
                 this.render();
                 
                 await this.loadParentData();
+                
+                this.loadingProgress = 75;
+                this.loadingMessage = 'Loading contact history...';
+                this.render();
+                
+                await this.loadContactLog();
                 
                 this.loadingProgress = 80;
                 this.loadingMessage = 'Building address index...';
@@ -1179,16 +1302,22 @@
                             <thead class="bg-gray-50">
                                 <tr>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Registered</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact Status</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">First Name</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Name</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Address</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
                                 </tr>
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
-                                ${this.filteredData.slice(0, 100).map(parent => `
+                                ${this.filteredData.slice(0, 100).map(parent => {
+                                    const parentId = `${parent.lastName}_${parent.firstName}_${parent.fullAddress}`.replace(/[^a-zA-Z0-9]/g, '_');
+                                    const contactStatus = this.contactStatuses[parentId] || { status: 'Not Contacted' };
+                                    
+                                    return `
                                     <tr class="hover:bg-gray-50">
                                         <td class="px-6 py-4 whitespace-nowrap text-center">
                                             ${parent.isRegistered ? 
@@ -1204,6 +1333,18 @@
                                                 '<span class="text-2xl text-red-600">✗</span>'
                                             }
                                         </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                            <span class="px-2 py-1 text-xs font-medium rounded ${
+                                                contactStatus.status === 'Registered' ? 'bg-green-100 text-green-800' :
+                                                contactStatus.status === 'Contacted' ? 'bg-blue-100 text-blue-800' :
+                                                contactStatus.status === 'Scheduled' ? 'bg-purple-100 text-purple-800' :
+                                                contactStatus.status === 'Declined' ? 'bg-red-100 text-red-800' :
+                                                'bg-gray-100 text-gray-600'
+                                            }">
+                                                ${contactStatus.status}
+                                            </span>
+                                            ${contactStatus.notes ? `<br><span class="text-xs text-gray-500 italic">${contactStatus.notes}</span>` : ''}
+                                        </td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.firstName || '-'}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.lastName || '-'}</td>
                                         <td class="px-6 py-4 text-sm text-gray-900" style="max-width: 250px; white-space: normal;">
@@ -1214,8 +1355,13 @@
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.phone || '-'}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.email || '-'}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.studentName || '-'}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                            <button onclick='App.showContactDialog(${JSON.stringify(parent).replace(/'/g, "\\'")})'  class="px-3 py-1 bg-purple-900 text-white text-xs rounded hover:bg-purple-800 transition">
+                                                Update
+                                            </button>
+                                        </td>
                                     </tr>
-                                `).join('')}
+                                `}).join('')}
                             </tbody>
                         </table>
                         ${this.filteredData.length > 100 ? '<div class="bg-gray-50 px-6 py-4 text-sm text-gray-600 text-center">Showing first 100 results. Use filters to narrow your search or export all data.</div>' : ''}
