@@ -31,6 +31,8 @@
             registeredFilter: 'all',
             viewMode: 'voters',
             loading: true,
+            loadingProgress: 0,
+            loadingMessage: 'Initializing...',
             stats: {
                 totalVoters: 0,
                 salineVoters: 0,
@@ -41,11 +43,33 @@
             },
 
             async init() {
-                await Promise.all([
-                    this.loadSalineData(),
-                    this.loadGarlandData()
-                ]);
+                this.loadingProgress = 10;
+                this.loadingMessage = 'Loading Saline County voters...';
+                this.render();
+                
+                await this.loadSalineData();
+                
+                this.loadingProgress = 40;
+                this.loadingMessage = 'Loading Garland County voters...';
+                this.render();
+                
+                await this.loadGarlandData();
+                
+                this.loadingProgress = 70;
+                this.loadingMessage = 'Loading parent data...';
+                this.render();
+                
                 await this.loadParentData();
+                
+                this.loadingProgress = 90;
+                this.loadingMessage = 'Matching parents to voters...';
+                this.render();
+                
+                // Small delay to show final progress
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                this.loadingProgress = 100;
+                this.loadingMessage = 'Complete!';
                 this.loading = false;
                 this.render();
             },
