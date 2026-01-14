@@ -1370,6 +1370,7 @@
                         <thead class="bg-gray-50">
                             <tr>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">County</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact Status</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">First Name</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Middle Name</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Name</th>
@@ -1377,15 +1378,32 @@
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Age</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Precinct</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200">
-                            ${this.filteredData.slice(0, 100).map(item => `
+                            ${this.filteredData.slice(0, 100).map(item => {
+                                const voterId = `${item.lastName}_${item.firstName}_${item.fullAddress}`.replace(/[^a-zA-Z0-9]/g, '_');
+                                const contactStatus = this.contactStatuses[voterId] || { status: 'Not Contacted' };
+                                
+                                return `
                                 <tr class="hover:bg-gray-50">
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         <span class="px-2 py-1 text-xs font-semibold rounded ${item.county === 'Saline' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'}">
                                             ${item.county}
                                         </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                        <span class="px-2 py-1 text-xs font-medium rounded ${
+                                            contactStatus.status === 'Registered' ? 'bg-green-100 text-green-800' :
+                                            contactStatus.status === 'Contacted' ? 'bg-blue-100 text-blue-800' :
+                                            contactStatus.status === 'Scheduled' ? 'bg-purple-100 text-purple-800' :
+                                            contactStatus.status === 'Declined' ? 'bg-red-100 text-red-800' :
+                                            'bg-gray-100 text-gray-600'
+                                        }">
+                                            ${contactStatus.status}
+                                        </span>
+                                        ${contactStatus.notes ? `<br><span class="text-xs text-gray-500 italic">${contactStatus.notes}</span>` : ''}
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${item.firstName || '-'}</td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${item.middleName || '-'}</td>
@@ -1398,8 +1416,13 @@
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${item.age}</td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${item.precinct || '-'}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                        <button onclick='App.showContactDialog(${JSON.stringify({firstName: item.firstName, lastName: item.lastName, fullAddress: item.fullAddress}).replace(/'/g, "\\'")})'  class="px-3 py-1 bg-purple-900 text-white text-xs rounded hover:bg-purple-800 transition">
+                                            Update
+                                        </button>
+                                    </td>
                                 </tr>
-                            `).join('')}
+                            `}).join('')}
                         </tbody>
                     </table>
                     ${this.filteredData.length > 100 ? '<div class="bg-gray-50 px-6 py-4 text-sm text-gray-600 text-center">Showing first 100 results. Use filters to narrow your search or export all data.</div>' : ''}
