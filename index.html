@@ -24,7 +24,7 @@
         
         const App = {
             voterData: [],
-            voterIndex: {}, // NEW: Fast lookup index
+            voterIndex: {}, // Fast lookup index
             parentData: [],
             filteredData: [],
             searchTerm: '',
@@ -41,6 +41,45 @@
                 registeredParents: 0,
                 unregisteredParents: 0,
                 totalParents: 0
+            },
+
+            // String similarity function (Levenshtein distance)
+            stringSimilarity(str1, str2) {
+                if (!str1 || !str2) return 0;
+                if (str1 === str2) return 100;
+                
+                const len1 = str1.length;
+                const len2 = str2.length;
+                
+                // If one string is empty, similarity is 0
+                if (len1 === 0 || len2 === 0) return 0;
+                
+                // Create distance matrix
+                const matrix = [];
+                for (let i = 0; i <= len1; i++) {
+                    matrix[i] = [i];
+                }
+                for (let j = 0; j <= len2; j++) {
+                    matrix[0][j] = j;
+                }
+                
+                // Calculate Levenshtein distance
+                for (let i = 1; i <= len1; i++) {
+                    for (let j = 1; j <= len2; j++) {
+                        const cost = str1[i - 1] === str2[j - 1] ? 0 : 1;
+                        matrix[i][j] = Math.min(
+                            matrix[i - 1][j] + 1,      // deletion
+                            matrix[i][j - 1] + 1,      // insertion
+                            matrix[i - 1][j - 1] + cost // substitution
+                        );
+                    }
+                }
+                
+                const distance = matrix[len1][len2];
+                const maxLen = Math.max(len1, len2);
+                const similarity = ((maxLen - distance) / maxLen) * 100;
+                
+                return Math.round(similarity);
             },
 
             async init() {
@@ -125,13 +164,14 @@
             },
 
             buildVoterIndex() {
-                // Build fast lookup index: key = "streetNumber_zip", value = array of matching voters
+                // Build fast lookup index: key = "streetNumber", value = array of matching voters
+                // ZIP code removed to be more forgiving with data quality issues
                 this.voterIndex = {};
                 
                 for (const voter of this.voterData) {
                     const parsed = this.parseVoterAddress(voter);
-                    if (parsed.streetNumber && parsed.zip) {
-                        const key = `${parsed.streetNumber}_${parsed.zip}`;
+                    if (parsed.streetNumber) {
+                        const key = parsed.streetNumber;
                         if (!this.voterIndex[key]) {
                             this.voterIndex[key] = [];
                         }
@@ -396,45 +436,94 @@
                     let isRegistered = false;
                     let matchedVoter = null;
                     let matchMethod = '';
+                    let matchConfidence = 0;
 
                     // Check manual override first
                     if (overrideRegistered) {
                         isRegistered = true;
                         matchMethod = 'Manual Override';
+                        matchConfidence = 100;
                     } else {
-                        // PRIORITY 1: Fast address lookup using index
-                        if (parentParsed.streetNumber && parentParsed.zip) {
-                            const lookupKey = `${parentParsed.streetNumber}_${parentParsed.zip}`;
+                        // PRIORITY 1: Address-based matching with fuzzy logic
+                        if (parentParsed.streetNumber) {
+                            const lookupKey = parentParsed.streetNumber;
                             const candidates = this.voterIndex[lookupKey] || [];
                             
+                            let bestMatch = null;
+                            let bestSimilarity = 0;
+                            
                             for (const candidate of candidates) {
-                                if (parentParsed.streetName === candidate.parsed.streetName) {
+                                // Calculate street name similarity
+                                const similarity = this.stringSimilarity(
+                                    parentParsed.streetName, 
+                                    candidate.parsed.streetName
+                                );
+                                
+                                if (similarity > bestSimilarity) {
+                                    bestSimilarity = similarity;
+                                    bestMatch = candidate;
+                                }
+                            }
+                            
+                            // HIGH CONFIDENCE: 95%+ similarity
+                            if (bestSimilarity >= 95) {
+                                isRegistered = true;
+                                matchedVoter = bestMatch.voter;
+                                matchMethod = bestSimilarity === 100 ? 'Address Match (Exact)' : `Address Match (${bestSimilarity}% similar)`;
+                                matchConfidence = bestSimilarity;
+                            }
+                            // MEDIUM CONFIDENCE: 85-94% similarity
+                            else if (bestSimilarity >= 85) {
+                                isRegistered = true;
+                                matchedVoter = bestMatch.voter;
+                                matchMethod = `Address Match (${bestSimilarity}% fuzzy)`;
+                                matchConfidence = bestSimilarity;
+                            }
+                        }
+                        
+                        // PRIORITY 2: Name + City fallback (only if address didn't match)
+                        if (!isRegistered) {
+                            const parentLastNorm = this.normalizeString(parentLastName);
+                            const parentFirstNorm = this.normalizeString(parentFirstName);
+                            const parentCity = this.normalizeString(parentParsed.city);
+                            
+                            // Search through voters
+                            for (const voter of this.voterData) {
+                                const voterLastNorm = this.normalizeString(voter.lastName || '');
+                                const voterFirstNorm = this.normalizeString(voter.firstName || '');
+                                const voterCity = this.normalizeString(this.parseVoterAddress(voter).city);
+                                
+                                // Exact name + city match
+                                if (parentLastNorm && voterLastNorm && parentLastNorm === voterLastNorm &&
+                                    parentFirstNorm && voterFirstNorm && parentFirstNorm === voterFirstNorm &&
+                                    parentCity && voterCity && parentCity === voterCity) {
                                     isRegistered = true;
-                                    matchedVoter = candidate.voter;
-                                    matchMethod = 'Address Match';
+                                    matchedVoter = voter;
+                                    matchMethod = 'Name + City Match';
+                                    matchConfidence = 80;
                                     break;
                                 }
                             }
                         }
                         
-                        // PRIORITY 2: Name + Zip Fallback (removed city requirement)
-                        if (!isRegistered) {
+                        // PRIORITY 3: Name + Street Number (partial address)
+                        if (!isRegistered && parentParsed.streetNumber) {
                             const parentLastNorm = this.normalizeString(parentLastName);
                             const parentFirstNorm = this.normalizeString(parentFirstName);
-                            const parentZip = parentParsed.zip;
+                            const lookupKey = parentParsed.streetNumber;
+                            const candidates = this.voterIndex[lookupKey] || [];
                             
-                            // Only search through voters, much faster than nested loop
-                            for (const voter of this.voterData) {
-                                const voterLastNorm = this.normalizeString(voter.lastName || '');
-                                const voterFirstNorm = this.normalizeString(voter.firstName || '');
-                                const voterZip = this.parseVoterAddress(voter).zip;
+                            for (const candidate of candidates) {
+                                const voterLastNorm = this.normalizeString(candidate.voter.lastName || '');
+                                const voterFirstNorm = this.normalizeString(candidate.voter.firstName || '');
                                 
+                                // Name match + same street number
                                 if (parentLastNorm && voterLastNorm && parentLastNorm === voterLastNorm &&
-                                    parentFirstNorm && voterFirstNorm && parentFirstNorm === voterFirstNorm &&
-                                    parentZip && voterZip && parentZip === voterZip) {
+                                    parentFirstNorm && voterFirstNorm && parentFirstNorm === voterFirstNorm) {
                                     isRegistered = true;
-                                    matchedVoter = voter;
-                                    matchMethod = 'Name + Zip (Addr Mismatch)';
+                                    matchedVoter = candidate.voter;
+                                    matchMethod = 'Name + Street# Match';
+                                    matchConfidence = 75;
                                     break;
                                 }
                             }
@@ -448,10 +537,13 @@
                         fullAddress: parentContactAddress,
                         cityStateZip: parentCityStateZip,
                         phone: parent['Contact Phone'] || '',
+                        email: parent['Contact Email'] || '',
+                        studentName: parent['Student Name'] || '',
                         relationship: parent['Relationship'] || '',
                         isRegistered,
                         matchedVoter,
                         matchMethod,
+                        matchConfidence,
                         overrideRegistered,
                         ...parent
                     };
@@ -513,13 +605,12 @@
             },
 
             addressesMatch(parent, voter) {
-                // Match if Street Number + Street Name + Zip all match
-                if (!parent.streetNumber || !parent.streetName || !parent.zip) return false;
-                if (!voter.streetNumber || !voter.streetName || !voter.zip) return false;
+                // Match if Street Number + Street Name match (ZIP removed)
+                if (!parent.streetNumber || !parent.streetName) return false;
+                if (!voter.streetNumber || !voter.streetName) return false;
                 
                 return parent.streetNumber === voter.streetNumber &&
-                       parent.streetName === voter.streetName &&
-                       parent.zip === voter.zip;
+                       parent.streetName === voter.streetName;
             },
 
             applyFilters() {
@@ -574,7 +665,10 @@
                         <div class="flex items-center justify-center h-screen bg-gray-50">
                             <div class="text-center">
                                 <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                                <p class="text-gray-600">Loading voter data from Google Sheets...</p>
+                                <p class="text-gray-600 mb-2">${this.loadingMessage}</p>
+                                <div class="w-64 h-2 bg-gray-200 rounded-full mx-auto overflow-hidden">
+                                    <div class="h-full bg-blue-600 transition-all duration-300" style="width: ${this.loadingProgress}%"></div>
+                                </div>
                             </div>
                         </div>
                     `;
@@ -589,8 +683,16 @@
 
                 app.innerHTML = `
                     <div class="bg-blue-900 text-white p-6 shadow-lg">
-                        <h1 class="text-3xl font-bold mb-2">Fountain Lake School District</h1>
-                        <p class="text-blue-200">Voter Database</p>
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h1 class="text-3xl font-bold mb-2">Fountain Lake School District</h1>
+                                <p class="text-blue-200">Voter Database</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-blue-300 text-sm">Version 2.0</p>
+                                <p class="text-blue-400 text-xs">Fuzzy Matching Enabled</p>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="max-w-7xl mx-auto px-6 py-6">
@@ -644,7 +746,17 @@
                                     <li>Garland County Voters</li>
                                     <li>Parent Database (matched against both counties)</li>
                                 </ul>
-                                <p class="text-xs text-blue-600 mt-2">Data updates when you update your Google Sheets</p>
+                                <p class="text-xs text-blue-600 mt-2">Data updates when you refresh the page</p>
+                                <div class="mt-3 pt-3 border-t border-blue-300">
+                                    <p class="text-xs font-semibold text-green-700 mb-1">Smart Matching Features:</p>
+                                    <ul class="text-xs text-green-700 ml-4 list-disc">
+                                        <li>Fuzzy address matching (handles typos like "Vaughn" vs "Vaughan")</li>
+                                        <li>ZIP code not required (more forgiving with data quality)</li>
+                                        <li>Multi-tier matching: Address → Name+City → Name+Street#</li>
+                                        <li>95%+ similarity = High confidence (✓ green)</li>
+                                        <li>85-94% similarity = Medium confidence (⚠️ yellow)</li>
+                                    </ul>
+                                </div>
                             </div>
                         </div>
 
@@ -760,11 +872,13 @@
                                         <td class="px-6 py-4 whitespace-nowrap text-center">
                                             ${parent.isRegistered ? 
                                                 `<div class="flex items-center justify-center gap-1">
-                                                    <span class="text-2xl text-green-600">✓</span>
+                                                    <span class="text-2xl ${parent.matchConfidence >= 95 ? 'text-green-600' : 'text-yellow-600'}">✓</span>
                                                     ${parent.matchMethod === 'Manual Override' ? 
                                                         '<span class="text-xs text-blue-600" title="Manual Override">👤</span>' : 
-                                                     parent.matchMethod === 'Name + City (Addr Mismatch)' ?
-                                                        '<span class="text-xs text-yellow-600" title="Address Mismatch">⚠️</span>' : ''}
+                                                     parent.matchConfidence < 95 && parent.matchConfidence >= 85 ?
+                                                        '<span class="text-xs text-yellow-600" title="Fuzzy Match">⚠️</span>' :
+                                                     parent.matchMethod.includes('Name') ?
+                                                        '<span class="text-xs text-orange-600" title="Name-based Match">👤</span>' : ''}
                                                 </div>` : 
                                                 '<span class="text-2xl text-red-600">✗</span>'
                                             }
@@ -777,8 +891,6 @@
                                             ${parent.matchMethod ? '<br><span class="text-gray-500 text-xs italic">' + parent.matchMethod + '</span>' : ''}
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.phone || '-'}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.email || '-'}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.studentName || '-'}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.email || '-'}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${parent.studentName || '-'}</td>
                                     </tr>
