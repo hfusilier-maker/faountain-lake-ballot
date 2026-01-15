@@ -924,9 +924,23 @@
                                 
                                 // Calculate name similarity
                                 const voterFirstNorm = (candidate.voter.firstName || '').toLowerCase().trim();
+                                const voterMiddleNorm = (candidate.voter.middleName || '').toLowerCase().trim();
                                 const voterLastNorm = (candidate.voter.lastName || '').toLowerCase().trim();
                                 
-                                const firstNameSimilarity = this.stringSimilarity(parentFirstNorm, voterFirstNorm);
+                                // Try matching first name to first name
+                                let firstNameSimilarity = this.stringSimilarity(parentFirstNorm, voterFirstNorm);
+                                let matchedVia = 'first';
+                                
+                                // If first name doesn't match well, try matching to middle name
+                                // (handles people who go by their middle name)
+                                if (firstNameSimilarity < 75 && voterMiddleNorm) {
+                                    const middleNameSimilarity = this.stringSimilarity(parentFirstNorm, voterMiddleNorm);
+                                    if (middleNameSimilarity > firstNameSimilarity) {
+                                        firstNameSimilarity = middleNameSimilarity;
+                                        matchedVia = 'middle';
+                                    }
+                                }
+                                
                                 const lastNameSimilarity = this.stringSimilarity(parentLastNorm, voterLastNorm);
                                 
                                 // Combined score: address is most important, but name matters too
@@ -942,6 +956,7 @@
                                     bestAddressSimilarity = addressSimilarity;
                                     bestNameSimilarity = (lastNameSimilarity + firstNameSimilarity) / 2;
                                     bestMatch = candidate;
+                                    bestMatch.matchedVia = matchedVia; // Store how the name was matched
                                 }
                             }
                             
@@ -950,14 +965,20 @@
                                 isRegistered = true;
                                 matchedVoter = bestMatch.voter;
                                 
+                                // Determine match method description
+                                let methodPrefix = 'Address + Name Match';
+                                if (bestMatch.matchedVia === 'middle') {
+                                    methodPrefix = 'Address + Middle Name Match';
+                                }
+                                
                                 if (bestAddressSimilarity === 100 && bestNameSimilarity === 100) {
-                                    matchMethod = 'Address + Name Match (Exact)';
+                                    matchMethod = `${methodPrefix} (Exact)`;
                                     matchConfidence = 100;
                                 } else if (bestAddressSimilarity >= 95 && bestNameSimilarity >= 85) {
-                                    matchMethod = `Address + Name Match (${Math.round(bestCombinedScore)}% confidence)`;
+                                    matchMethod = `${methodPrefix} (${Math.round(bestCombinedScore)}% confidence)`;
                                     matchConfidence = Math.round(bestCombinedScore);
                                 } else {
-                                    matchMethod = `Address + Name Match (${Math.round(bestCombinedScore)}% fuzzy)`;
+                                    matchMethod = `${methodPrefix} (${Math.round(bestCombinedScore)}% fuzzy)`;
                                     matchConfidence = Math.round(bestCombinedScore);
                                 }
                             }
