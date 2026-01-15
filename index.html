@@ -429,6 +429,9 @@
                 Object.values(this.contactStatuses).forEach(status => {
                     if (status.contactedBy) volunteers.add(status.contactedBy);
                 });
+                
+                // Count PO Box addresses
+                const poBoxParents = this.parentData.filter(p => p.isPOBox);
 
                 // Registration rate
                 const registrationRate = this.stats.totalParents > 0 
@@ -446,7 +449,9 @@
                     registrationRate,
                     targetRate,
                     neededRegistrations: Math.max(0, neededRegistrations),
-                    volunteers: Array.from(volunteers)
+                    volunteers: Array.from(volunteers),
+                    poBoxCount: poBoxParents.length,
+                    poBoxParents: poBoxParents
                 };
             },
 
@@ -888,6 +893,9 @@
                     const parentCityStateZip = parent['City-State-Zip'] || '';
                     const overrideRegistered = (parent['Override Registered'] || '').toLowerCase() === 'yes';
                     
+                    // Check if address is a PO Box
+                    const isPOBox = /\b(p\.?\s?o\.?\s?box|po\s?box|post\s?office\s?box)\b/i.test(parentContactAddress);
+                    
                     // Parse parent address
                     const parentParsed = this.parseParentAddress(parentContactAddress, parentCityStateZip);
                     
@@ -901,6 +909,11 @@
                         isRegistered = true;
                         matchMethod = 'Manual Override';
                         matchConfidence = 100;
+                    } else if (isPOBox) {
+                        // Cannot automatically match PO Box addresses
+                        isRegistered = false;
+                        matchMethod = 'PO Box - Manual Review Required';
+                        matchConfidence = 0;
                     } else {
                         // PRIORITY 1: Address-based matching with fuzzy logic + name verification
                         if (parentParsed.streetNumber) {
@@ -1048,6 +1061,7 @@
                         matchMethod,
                         matchConfidence,
                         overrideRegistered,
+                        isPOBox, // Flag for PO Box addresses
                         ...parent
                     };
                 });
@@ -1639,6 +1653,60 @@
                         <p class="text-gray-600">No mixed households found. Great job getting full household registration!</p>
                     </div>
                     `}
+                    
+                    <!-- PO Box Addresses Section -->
+                    ${analytics.poBoxCount > 0 ? `
+                    <div class="bg-white border border-orange-200 rounded-lg p-6 mt-8">
+                        <h3 class="text-lg font-bold mb-2 text-orange-800">⚠️ PO Box Addresses - Manual Review Required</h3>
+                        <p class="text-sm text-gray-600 mb-4">These parents provided PO Box addresses. Automatic matching is not possible - manual verification needed.</p>
+                        
+                        <div class="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-4">
+                            <div class="text-center">
+                                <div class="text-3xl font-bold text-orange-700">${analytics.poBoxCount}</div>
+                                <div class="text-sm text-orange-600 mt-1">Parents with PO Box addresses</div>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                            <div class="text-sm text-blue-800">
+                                <strong>How to verify:</strong>
+                                <ol class="list-decimal ml-5 mt-2 space-y-1">
+                                    <li>Search for the parent's name in the Voter Database tab</li>
+                                    <li>If you find them, note their physical address</li>
+                                    <li>In your Parent Google Sheet, add "Override Registered" = "Yes"</li>
+                                    <li>Refresh this page to update</li>
+                                </ol>
+                            </div>
+                        </div>
+                        
+                        <div class="space-y-2 max-h-96 overflow-y-auto">
+                            ${analytics.poBoxParents.slice(0, 20).map(parent => `
+                                <div class="border border-gray-200 rounded-lg p-3 hover:bg-gray-50">
+                                    <div class="flex items-start justify-between">
+                                        <div>
+                                            <div class="font-semibold text-gray-900">${parent.firstName} ${parent.lastName}</div>
+                                            <div class="text-xs text-gray-600 mt-1">${parent.fullAddress}</div>
+                                            <div class="text-xs text-gray-500">${parent.cityStateZip}</div>
+                                        </div>
+                                        <span class="px-2 py-1 text-xs font-medium rounded bg-orange-100 text-orange-800">
+                                            PO Box
+                                        </span>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        
+                        ${analytics.poBoxCount > 20 ? `
+                            <div class="mt-4 text-center text-sm text-gray-600">
+                                Showing 20 of ${analytics.poBoxCount} PO Box addresses. View all in Parent Database.
+                            </div>
+                        ` : ''}
+                        
+                        <button onclick="App.setViewMode('parents'); App.setRegisteredFilter('unregistered');" class="w-full mt-4 px-4 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition font-semibold">
+                            View All in Parent Database →
+                        </button>
+                    </div>
+                    ` : ''}
                 `;
             },
 
@@ -1728,7 +1796,19 @@
                                             ${parent.cityStateZip ? '<br><span class="text-gray-600 text-xs">' + parent.cityStateZip + '</span>' : ''}
                                         </td>
                                         <td class="px-6 py-4 text-sm" style="max-width: 250px; white-space: normal;">
-                                            ${parent.isRegistered ? `
+                                            ${parent.isPOBox ? `
+                                                <div class="space-y-1">
+                                                    <div class="font-semibold text-orange-700">
+                                                        ⚠️ PO Box Address
+                                                    </div>
+                                                    <div class="text-xs text-gray-700">
+                                                        Cannot automatically match PO Box to physical address
+                                                    </div>
+                                                    <div class="text-xs text-orange-600 mt-2">
+                                                        <strong>Action:</strong> Search name in Voter Database, then use "Override Registered" if found
+                                                    </div>
+                                                </div>
+                                            ` : parent.isRegistered ? `
                                                 <div class="space-y-1">
                                                     <div class="font-semibold ${parent.matchConfidence >= 95 ? 'text-green-700' : parent.matchConfidence >= 85 ? 'text-yellow-700' : 'text-orange-700'}">
                                                         ✓ Match Found (${parent.matchConfidence}%)
