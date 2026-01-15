@@ -821,7 +821,15 @@
                 // Convert to lowercase and normalize whitespace
                 let normalized = str.toString().toLowerCase().trim();
                 
-                // Normalize common street abbreviations
+                // Remove directional prefixes (North, South, East, West, N, S, E, W)
+                const directionals = ['north', 'south', 'east', 'west', 'n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw', 'northeast', 'northwest', 'southeast', 'southwest'];
+                directionals.forEach(dir => {
+                    // Remove at word boundaries
+                    const regex = new RegExp('\\b' + dir + '\\b', 'gi');
+                    normalized = normalized.replace(regex, '');
+                });
+                
+                // Normalize common street abbreviations and types
                 const abbreviations = {
                     'highway': 'hwy',
                     'hwy': 'hwy',
@@ -854,14 +862,16 @@
                     'unit': 'unit'
                 };
                 
-                // Replace abbreviations
+                // Replace abbreviations with normalized forms, then remove them entirely
                 Object.keys(abbreviations).forEach(key => {
                     const regex = new RegExp('\\b' + key + '\\b', 'gi');
-                    normalized = normalized.replace(regex, abbreviations[key]);
+                    normalized = normalized.replace(regex, '');
                 });
                 
-                // Remove all non-alphanumeric characters
-                return normalized.replace(/[^a-z0-9]/g, '');
+                // Remove all non-alphanumeric characters and extra spaces
+                normalized = normalized.replace(/[^a-z0-9]/g, '');
+                
+                return normalized;
             },
 
             matchParentsToVoters(parents = null) {
