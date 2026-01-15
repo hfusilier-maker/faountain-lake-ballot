@@ -1052,6 +1052,7 @@
                         lastName: parentLastName,
                         fullAddress: parentContactAddress,
                         cityStateZip: parentCityStateZip,
+                        county: matchedVoter ? matchedVoter.county : 'Unknown', // Use county from matched voter
                         phone: parent['Contact Phone'] || '',
                         email: parent['Contact Email'] || '',
                         studentName: parent['Student Name'] || '',
@@ -1794,6 +1795,7 @@
                                         <td class="px-6 py-4 text-sm text-gray-900" style="max-width: 300px; white-space: normal;">
                                             ${parent.fullAddress || '-'}
                                             ${parent.cityStateZip ? '<br><span class="text-gray-600 text-xs">' + parent.cityStateZip + '</span>' : ''}
+                                            ${parent.county ? `<br><span class="px-2 py-0.5 text-xs font-semibold rounded mt-1 inline-block ${parent.county === 'Saline' ? 'bg-green-100 text-green-800' : parent.county === 'Garland' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-600'}">${parent.county} County</span>` : ''}
                                         </td>
                                         <td class="px-6 py-4 text-sm" style="max-width: 250px; white-space: normal;">
                                             ${parent.isPOBox ? `
