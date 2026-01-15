@@ -28,6 +28,40 @@
         const GOOGLE_API_KEY = 'AIzaSyD3MsI4xd2u8ZfvIjRZWsX5bzKvxVzUFuo';
         const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyYe-5KGoaw5CSo-mqgCyHHpfDWNfQu1xvXWa3aJWly5XDaWWV05Eg2yp6dFoP3h1it/exec';
         
+        // PASSWORD PROTECTION - Remove this section to disable password
+        // ============================================
+        const CORRECT_PASSWORD = 'Gocobras2026!';
+        let isAuthenticated = false;
+        
+        // Check password on page load
+        function checkPassword() {
+            const password = prompt('🔒 Fountain Lake Voter Database\n\nThis system contains sensitive voter and parent information.\n\nPlease enter the password to continue:');
+            
+            if (password === CORRECT_PASSWORD) {
+                isAuthenticated = true;
+                App.init();
+            } else if (password === null) {
+                // User clicked cancel
+                document.getElementById('app').innerHTML = `
+                    <div style="display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                        <div style="background: white; border-radius: 16px; padding: 48px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); max-width: 450px; text-align: center;">
+                            <div style="font-size: 48px; margin-bottom: 16px;">🔒</div>
+                            <h1 style="font-size: 24px; font-weight: bold; color: #1a202c; margin-bottom: 16px;">Access Required</h1>
+                            <p style="color: #4a5568; margin-bottom: 24px;">You must enter the correct password to access this system.</p>
+                            <button onclick="checkPassword()" style="background: #667eea; color: white; padding: 12px 32px; border-radius: 8px; border: none; font-size: 16px; font-weight: 600; cursor: pointer;">
+                                Try Again
+                            </button>
+                        </div>
+                    </div>
+                `;
+            } else {
+                // Wrong password
+                alert('❌ Incorrect Password\n\nAccess denied. Please contact the campaign administrator if you need access.');
+                checkPassword(); // Ask again
+            }
+        }
+        // ============================================
+        
         const App = {
             voterData: [],
             voterIndex: {}, // Fast lookup index
@@ -1915,8 +1949,8 @@
             },
         };
 
-        // Initialize app
-        App.init();
+        // Check password before initializing app
+        checkPassword();
     </script>
 </body>
 </html>
