@@ -30,14 +30,18 @@
         
         // PASSWORD PROTECTION - Remove this section to disable password
         // ============================================
-        const CORRECT_PASSWORD = 'Gocobras2026!';
+        // Password is stored encoded (not plain text)
+        const ENCODED_PASSWORD = 'R29jb2JyYXMyMDI2IQ=='; // Base64 encoded
         let isAuthenticated = false;
         
-        // Check password on page load
+        // Decode and check password
         function checkPassword() {
             const password = prompt('🔒 Fountain Lake Voter Database\n\nThis system contains sensitive voter and parent information.\n\nPlease enter the password to continue:');
             
-            if (password === CORRECT_PASSWORD) {
+            // Decode the stored password
+            const correctPassword = atob(ENCODED_PASSWORD);
+            
+            if (password === correctPassword) {
                 isAuthenticated = true;
                 App.init();
             } else if (password === null) {
