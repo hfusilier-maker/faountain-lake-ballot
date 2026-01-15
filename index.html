@@ -1650,6 +1650,7 @@
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">First Name</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Name</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Address</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Match Details</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
                                 </tr>
                             </thead>
@@ -1691,7 +1692,33 @@
                                         <td class="px-6 py-4 text-sm text-gray-900" style="max-width: 300px; white-space: normal;">
                                             ${parent.fullAddress || '-'}
                                             ${parent.cityStateZip ? '<br><span class="text-gray-600 text-xs">' + parent.cityStateZip + '</span>' : ''}
-                                            ${parent.matchMethod ? '<br><span class="text-gray-500 text-xs italic">' + parent.matchMethod + '</span>' : ''}
+                                        </td>
+                                        <td class="px-6 py-4 text-sm" style="max-width: 250px; white-space: normal;">
+                                            ${parent.isRegistered ? `
+                                                <div class="space-y-1">
+                                                    <div class="font-semibold ${parent.matchConfidence >= 95 ? 'text-green-700' : parent.matchConfidence >= 85 ? 'text-yellow-700' : 'text-orange-700'}">
+                                                        ✓ Match Found (${parent.matchConfidence}%)
+                                                    </div>
+                                                    ${parent.matchedVoter ? `
+                                                        <div class="text-xs text-gray-700">
+                                                            Voter: <span class="font-medium">${parent.matchedVoter.firstName || ''} ${parent.matchedVoter.lastName || ''}</span>
+                                                        </div>
+                                                        <div class="text-xs text-gray-600">
+                                                            ${parent.matchedVoter.fullAddress || 'Address not available'}
+                                                        </div>
+                                                    ` : ''}
+                                                    <div class="text-xs text-gray-500 italic mt-1">
+                                                        ${parent.matchMethod || 'Unknown method'}
+                                                    </div>
+                                                </div>
+                                            ` : `
+                                                <div class="text-red-700 font-semibold text-xs">
+                                                    ✗ No Match Found
+                                                </div>
+                                                <div class="text-xs text-gray-600 mt-1">
+                                                    No voter record found at this address with similar name
+                                                </div>
+                                            `}
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm">
                                             <button onclick='App.showContactDialog(${JSON.stringify(parent).replace(/'/g, "\\'")})'  class="px-3 py-1 bg-purple-900 text-white text-xs rounded hover:bg-purple-800 transition">
