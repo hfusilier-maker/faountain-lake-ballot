@@ -923,8 +923,11 @@
                                 // Address: 60% weight, Last name: 30%, First name: 10%
                                 const combinedScore = (addressSimilarity * 0.6) + (lastNameSimilarity * 0.3) + (firstNameSimilarity * 0.1);
                                 
-                                // Must have reasonably similar last name (75%+) to consider it the same household
-                                if (lastNameSimilarity >= 75 && combinedScore > bestCombinedScore) {
+                                // STRICT REQUIREMENTS:
+                                // - Last name must be 75%+ similar (same family)
+                                // - First name must be 75%+ similar (same person - prevents matching spouses!)
+                                // - Address must be similar
+                                if (lastNameSimilarity >= 75 && firstNameSimilarity >= 75 && combinedScore > bestCombinedScore) {
                                     bestCombinedScore = combinedScore;
                                     bestAddressSimilarity = addressSimilarity;
                                     bestNameSimilarity = (lastNameSimilarity + firstNameSimilarity) / 2;
@@ -932,7 +935,7 @@
                                 }
                             }
                             
-                            // HIGH CONFIDENCE: Address 85%+ AND Last name 75%+
+                            // HIGH CONFIDENCE: Address 85%+ AND Last name 75%+ AND First name 75%+
                             if (bestAddressSimilarity >= 85 && bestMatch) {
                                 isRegistered = true;
                                 matchedVoter = bestMatch.voter;
